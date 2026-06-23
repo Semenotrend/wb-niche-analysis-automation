@@ -13,6 +13,7 @@
     "sqlite:init": "tsx sqlite/scripts/init.ts",
     "sqlite:reset": "tsx sqlite/scripts/reset-data.ts",
     "sqlite:inspect": "tsx sqlite/scripts/inspect.ts",
+    "sqlite:report": "tsx sqlite/scripts/report.ts",
     "niche-report:sqlite": "STORAGE_DRIVER=sqlite tsx src/cli/run-niche-report.ts",
     "niche-query-stats:sqlite": "STORAGE_DRIVER=sqlite tsx src/cli/run-niche-query-stats.ts",
     "compare-cards:sqlite": "STORAGE_DRIVER=sqlite tsx src/cli/run-compare-cards.ts",
