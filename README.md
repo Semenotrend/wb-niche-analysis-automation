@@ -8,7 +8,7 @@
 2. `niche-query-stats` - собирает поисковые запросы по нише.
 3. `compare-cards` - собирает 50 карточек из раздела `Сравнение карточек` и добавляет первые 5 вручную.
 
-Для локального пользователя основной режим - SQLite: без Docker, без отдельной БД, данные сохраняются в файл внутри проекта.
+Для локального пользователя основной режим - SQLite: без отдельной БД, данные сохраняются в файл внутри проекта.
 
 ## Что нужно установить
 
@@ -22,7 +22,7 @@
 npm install -g pnpm
 ```
 
-## Быстрый старт без Docker
+## Быстрый старт
 
 Из корня проекта:
 
@@ -278,33 +278,6 @@ sqlite/data/*.sqlite-wal
 sqlite/data/*.sqlite-shm
 ```
 
-## Postgres / Docker режим
-
-Postgres остается доступен как developer/server-like режим.
-
-Поднять БД и применить миграции:
-
-```bash
-docker compose -f database/docker-compose.yml up -d
-bash database/scripts/apply-migrations.sh
-```
-
-Проверить готовность:
-
-```bash
-pnpm run doctor:postgres
-```
-
-Запустить сценарии через Postgres:
-
-```bash
-HEADLESS=false pnpm run niche-report
-HEADLESS=false pnpm run niche-query-stats
-HEADLESS=false pnpm run compare-cards
-```
-
-Для подробностей смотри `database/README.md`.
-
 ## Полезные команды
 
 ```bash
@@ -320,7 +293,6 @@ pnpm run sqlite:report
 ```text
 config/      настройки ниши и runtime
 sqlite/      локальная SQLite-БД, схема, scripts, read-only report
-database/    Postgres/Docker контур
 src/cli/     CLI-точки входа
 src/flows/   Playwright-сценарии
 src/steps/   отдельные шаги и парсеры
@@ -331,7 +303,6 @@ docs/        подробная документация
 Дополнительная документация:
 
 - `sqlite/README.md` - локальный SQLite-режим;
-- `database/README.md` - Postgres/Docker контур;
 - `docs/cli_ручной_запуск.md` - ручной запуск через CLI;
 - `docs/архитектура_автоматизации.md` - структура автоматизации;
 - `docs/playwright_гранулярность.md` - пошаговая гранулярность сценариев;
