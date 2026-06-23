@@ -11,15 +11,22 @@
 
 Важные поля:
 
-json
+```json
 {
-  "category": "Обувь",
-  "subject": "Пропитки для обуви",
   "period": "Месяц",
   "topBy": "По выручке",
-  "nicheReportUrl": "https://seller.wildberries.ru/platform-analytics/niche-analysis/item?id=649",
-  "fallbackEnabled": true
+  "fallbackEnabled": true,
+  "niches": [
+    {
+      "category": "Обувь",
+      "subject": "Пропитки для обуви",
+      "nicheReportUrl": "https://seller.wildberries.ru/platform-analytics/niche-analysis/item?id=649"
+    }
+  ]
 }
+```
+
+Каждый элемент `niches` - отдельная ниша, которую команды обходят по очереди.
 
 ## Авторизация
 
@@ -51,7 +58,7 @@ HEADLESS=false pnpm run niche-report
 
 Что делает:
 
-1. открывает `nicheReportUrl` из `config/scenario.json`;
+1. для каждой ниши из `config/scenario.json` открывает ее `nicheReportUrl`;
 2. выбирает период `Месяц`;
 3. парсит метрики и поисковые запросы;
 4. сохраняет результат в PostgreSQL.
@@ -79,7 +86,7 @@ HEADLESS=false pnpm run compare-cards
 1. открывает страницу `Сравнение карточек`;
 2. нажимает `Сравнить карточки`;
 3. выбирает `Выбрать из рекомендаций по предмету`;
-4. вводит `subject` из `config/scenario.json`;
+4. вводит `subject` текущей ниши из `config/scenario.json`;
 5. выбирает топ карточек по `topBy`;
 6. собирает 50 уникальных ID карточек;
 7. сохраняет эти ID в `wb_analytics.compare_card_recommendations`;

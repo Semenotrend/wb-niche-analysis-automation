@@ -42,23 +42,29 @@ pnpm run login
 
 ```json
 {
-  "category": "Обувь",
-  "subject": "Пропитки для обуви",
   "period": "Месяц",
   "topBy": "По выручке",
-  "nicheReportUrl": "https://seller.wildberries.ru/platform-analytics/niche-analysis/item?id=649",
-  "fallbackEnabled": true
+  "fallbackEnabled": true,
+  "niches": [
+    {
+      "category": "Обувь",
+      "subject": "Пропитки для обуви",
+      "nicheReportUrl": "https://seller.wildberries.ru/platform-analytics/niche-analysis/item?id=649"
+    }
+  ]
 }
 ```
 
 Главное:
 
-- `nicheReportUrl` используется для сбора статистики ниши;
+- `niches` задает список ниш, которые автоматизации обойдут по очереди;
+- `category`, `subject` и `nicheReportUrl` внутри каждого элемента описывают одну нишу;
+- `nicheReportUrl` используется для сбора статистики конкретной ниши;
 - `subject` используется в сценарии `compare-cards`, когда автоматизация выбирает рекомендации по предмету;
 - `topBy` задает способ отбора топа карточек;
 - `fallbackEnabled` разрешает fallback через UI-фильтры, если прямой URL отчета не открылся.
 
-Важно: `compare-cards` сейчас не вытаскивает предмет автоматически из `nicheReportUrl`. Если меняешь URL ниши, проверь, что `subject` соответствует этой же нише.
+Важно: `compare-cards` сейчас не вытаскивает предмет автоматически из `nicheReportUrl`. Если меняешь URL ниши, проверь, что `subject` соответствует этой же нише. Старый формат с одиночными `category`, `subject` и `nicheReportUrl` тоже поддерживается, но новый рабочий формат - `niches`.
 
 ## Запуск автоматизаций
 
@@ -139,7 +145,7 @@ addManualCompareCards
 
 1. открывается раздел `Сравнение карточек`;
 2. выбирается режим `Выбрать из рекомендаций по предмету`;
-3. вводится `subject` из `config/scenario.json`;
+3. вводится `subject` текущей ниши из `config/scenario.json`;
 4. выбирается топ по `topBy`;
 5. из DOM собираются 50 уникальных `nm_id`;
 6. ID сохраняются в `wb_analytics.compare_card_recommendations`;

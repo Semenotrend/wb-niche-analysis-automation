@@ -4,7 +4,7 @@ import {
 } from "../core/browser.js";
 import {
   loadRuntimeConfig,
-  loadScenarioConfig
+  loadScenarioConfigs
 } from "../core/config.js";
 import { createPacing } from "../core/pacing.js";
 import { createStepRunner } from "../core/stepRunner.js";
@@ -15,8 +15,8 @@ import {
 import { saveNicheQueryStatsStepLogs } from "../steps/saveNicheQueryStatsToDb.js";
 
 async function main(): Promise<void> {
-  const [scenario, runtime] = await Promise.all([
-    loadScenarioConfig(),
+  const [scenarios, runtime] = await Promise.all([
+    loadScenarioConfigs(),
     loadRuntimeConfig()
   ]);
 
@@ -27,26 +27,32 @@ async function main(): Promise<void> {
   });
 
   try {
-    const stepRunner = createStepRunner({
-      totalSteps: NICHE_QUERY_STATS_FLOW_STEPS,
-      pacing: createPacing(runtime)
-    });
+    for (const [index, scenario] of scenarios.entries()) {
+      console.log(
+        `[niche-query-stats] ${index + 1}/${scenarios.length} ${scenario.category} / ${scenario.subject}`
+      );
 
-    const result = await runNicheQueryStatsFlow({
-      page,
-      scenario,
-      runtime,
-      stepRunner
-    });
+      const stepRunner = createStepRunner({
+        totalSteps: NICHE_QUERY_STATS_FLOW_STEPS,
+        pacing: createPacing(runtime)
+      });
 
-    await saveNicheQueryStatsStepLogs({
-      runId: result.runId,
-      stepLogs: stepRunner.getStepLogs()
-    });
+      const result = await runNicheQueryStatsFlow({
+        page,
+        scenario,
+        runtime,
+        stepRunner
+      });
 
-    console.log(
-      `[niche-query-stats] saved ${result.savedCount} search queries snapshot_id=${result.snapshotId} run_id=${result.runId}`
-    );
+      await saveNicheQueryStatsStepLogs({
+        runId: result.runId,
+        stepLogs: stepRunner.getStepLogs()
+      });
+
+      console.log(
+        `[niche-query-stats] saved ${result.savedCount} search queries snapshot_id=${result.snapshotId} run_id=${result.runId}`
+      );
+    }
   } finally {
     await browser.close();
   }

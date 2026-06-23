@@ -13,6 +13,19 @@ export type ScenarioConfig = {
   fallbackEnabled: boolean;
 };
 
+type RawScenarioNicheConfig = {
+  category?: unknown;
+  subject?: unknown;
+  period?: unknown;
+  topBy?: unknown;
+  nicheReportUrl?: unknown;
+  fallbackEnabled?: unknown;
+};
+
+type RawScenarioConfig = RawScenarioNicheConfig & {
+  niches?: unknown;
+};
+
 export type RuntimeConfig = {
   delays: {
     beforeActionMs: DelayRange;
@@ -36,8 +49,88 @@ async function readJson<T>(path: string): Promise<T> {
   return JSON.parse(content) as T;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function readString(
+  value: unknown,
+  fieldName: string,
+  options: { allowEmpty?: boolean } = {}
+): string {
+  if (typeof value !== "string") {
+    throw new Error(`config: scenario.${fieldName} must be a string`);
+  }
+
+  if (!options.allowEmpty && value.trim() === "") {
+    throw new Error(`config: scenario.${fieldName} must not be empty`);
+  }
+
+  return value;
+}
+
+function readBoolean(value: unknown, fieldName: string): boolean {
+  if (typeof value !== "boolean") {
+    throw new Error(`config: scenario.${fieldName} must be a boolean`);
+  }
+
+  return value;
+}
+
+function normalizeScenario(
+  rawNiche: RawScenarioNicheConfig,
+  defaults: RawScenarioNicheConfig,
+  fieldPrefix: string
+): ScenarioConfig {
+  return {
+    category: readString(
+      rawNiche.category ?? defaults.category,
+      `${fieldPrefix}category`
+    ),
+    subject: readString(rawNiche.subject ?? defaults.subject, `${fieldPrefix}subject`),
+    period: readString(rawNiche.period ?? defaults.period, `${fieldPrefix}period`),
+    topBy: readString(rawNiche.topBy ?? defaults.topBy, `${fieldPrefix}topBy`),
+    nicheReportUrl: readString(
+      rawNiche.nicheReportUrl ?? defaults.nicheReportUrl ?? "",
+      `${fieldPrefix}nicheReportUrl`,
+      { allowEmpty: true }
+    ),
+    fallbackEnabled: readBoolean(
+      rawNiche.fallbackEnabled ?? defaults.fallbackEnabled,
+      `${fieldPrefix}fallbackEnabled`
+    )
+  };
+}
+
+function normalizeScenarioConfigs(raw: RawScenarioConfig): ScenarioConfig[] {
+  if (Array.isArray(raw.niches)) {
+    if (raw.niches.length === 0) {
+      throw new Error("config: scenario.niches must contain at least one item");
+    }
+
+    return raw.niches.map((niche, index) => {
+      if (!isRecord(niche)) {
+        throw new Error(`config: scenario.niches[${index}] must be an object`);
+      }
+
+      return normalizeScenario(niche, raw, `niches[${index}].`);
+    });
+  }
+
+  return [normalizeScenario(raw, raw, "")];
+}
+
 export async function loadScenarioConfig(): Promise<ScenarioConfig> {
-  return readJson<ScenarioConfig>(join(PROJECT_ROOT, "config", "scenario.json"));
+  const scenarios = await loadScenarioConfigs();
+  return scenarios[0];
+}
+
+export async function loadScenarioConfigs(): Promise<ScenarioConfig[]> {
+  const rawScenario = await readJson<RawScenarioConfig>(
+    join(PROJECT_ROOT, "config", "scenario.json")
+  );
+
+  return normalizeScenarioConfigs(rawScenario);
 }
 
 export async function loadRuntimeConfig(): Promise<RuntimeConfig> {

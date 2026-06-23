@@ -4,7 +4,7 @@ import {
 } from "../core/browser.js";
 import {
   loadRuntimeConfig,
-  loadScenarioConfig
+  loadScenarioConfigs
 } from "../core/config.js";
 import { createPacing } from "../core/pacing.js";
 import { createStepRunner } from "../core/stepRunner.js";
@@ -15,8 +15,8 @@ import {
 import { saveCompareCardStepLogs } from "../steps/saveCompareCardIdsToDb.js";
 
 async function main(): Promise<void> {
-  const [scenario, runtime] = await Promise.all([
-    loadScenarioConfig(),
+  const [scenarios, runtime] = await Promise.all([
+    loadScenarioConfigs(),
     loadRuntimeConfig()
   ]);
 
@@ -27,26 +27,32 @@ async function main(): Promise<void> {
   });
 
   try {
-    const stepRunner = createStepRunner({
-      totalSteps: IMPLEMENTED_COMPARE_CARDS_STEPS,
-      pacing: createPacing(runtime)
-    });
+    for (const [index, scenario] of scenarios.entries()) {
+      console.log(
+        `[compare-cards] ${index + 1}/${scenarios.length} ${scenario.category} / ${scenario.subject}`
+      );
 
-    const result = await runCompareCardsFlow({
-      page,
-      scenario,
-      runtime,
-      stepRunner
-    });
+      const stepRunner = createStepRunner({
+        totalSteps: IMPLEMENTED_COMPARE_CARDS_STEPS,
+        pacing: createPacing(runtime)
+      });
 
-    await saveCompareCardStepLogs({
-      runId: result.runId,
-      stepLogs: stepRunner.getStepLogs()
-    });
+      const result = await runCompareCardsFlow({
+        page,
+        scenario,
+        runtime,
+        stepRunner
+      });
 
-    console.log(
-      `[compare-cards] saved ${result.savedCount} unique card IDs to DB run_id=${result.runId}`
-    );
+      await saveCompareCardStepLogs({
+        runId: result.runId,
+        stepLogs: stepRunner.getStepLogs()
+      });
+
+      console.log(
+        `[compare-cards] saved ${result.savedCount} unique card IDs to DB run_id=${result.runId}`
+      );
+    }
   } finally {
     await browser.close();
   }
