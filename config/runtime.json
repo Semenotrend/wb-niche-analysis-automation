@@ -1,0 +1,17 @@
+{
+  "delays": {
+    "beforeActionMs": [300, 700],
+    "betweenStepsMs": [800, 1500],
+    "afterNavigationMs": [2000, 4000],
+    "typingDelayMs": [30, 80]
+  },
+  "timeouts": {
+    "defaultMs": 30000,
+    "navigationMs": 60000,
+    "resultMs": 60000
+  },
+  "viewport": {
+    "width": 1440,
+    "height": 900
+  }
+}

@@ -1,0 +1,36 @@
+{
+  "name": "wb-niche-analysis-automation",
+  "version": "1.0.0",
+  "description": "Playwright automation for WB Partners niche analysis",
+  "scripts": {
+    "login": "tsx src/cli/login.ts",
+    "compare-cards": "tsx src/cli/run-compare-cards.ts",
+    "niche-report": "tsx src/cli/run-niche-report.ts",
+    "niche-query-stats": "tsx src/cli/run-niche-query-stats.ts",
+    "playwright:install": "playwright install chromium",
+    "typecheck": "tsc --noEmit"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "devEngines": {
+    "packageManager": {
+      "name": "pnpm",
+      "version": "^11.5.3",
+      "onFail": "download"
+    }
+  },
+  "type": "module",
+  "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
+    "@types/node": "^26.0.0",
+    "@types/pg": "^8.20.0",
+    "playwright": "^1.61.0",
+    "tsx": "^4.22.4",
+    "typescript": "^6.0.3"
+  },
+  "dependencies": {
+    "better-sqlite3": "^12.11.1",
+    "pg": "^8.22.0"
+  }
+}
