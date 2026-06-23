@@ -3,3 +3,6 @@ node_modules/
 .auth/*.json
 logs/*.json
 logs/*.log
+sqlite/data/*.sqlite
+sqlite/data/*.sqlite-wal
+sqlite/data/*.sqlite-shm

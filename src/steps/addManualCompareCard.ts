@@ -1,40 +1,21 @@
 import type { Page } from "playwright";
-import { withDbClient } from "../core/db.js";
+import { getAutomationStorage } from "../core/storage.js";
 import { startCompareCards } from "./startCompareCards.js";
 
 export const MANUAL_COMPARE_CARD_LIMIT = 5;
-
-type ManualCompareCardRow = {
-  rank_position: number;
-  nm_id: string;
-};
 
 async function loadManualCompareCardIds(
   runId: string,
   limit: number
 ): Promise<string[]> {
-  const rows = await withDbClient(async (client) => {
-    const result = await client.query<ManualCompareCardRow>(
-      `
-        SELECT rank_position, nm_id::text AS nm_id
-        FROM wb_analytics.compare_card_recommendations
-        WHERE run_id = $1
-        ORDER BY rank_position
-        LIMIT $2
-      `,
-      [runId, limit]
-    );
+  const nmIds = await getAutomationStorage().loadManualCompareCardIds(runId, limit);
 
-    return result.rows;
-  });
-
-  if (rows.length < limit) {
+  if (nmIds.length < limit) {
     throw new Error(
-      `empty_result: expected ${limit} compare card IDs in DB for manual add, got ${rows.length}`
+      `empty_result: expected ${limit} compare card IDs in DB for manual add, got ${nmIds.length}`
     );
   }
 
-  const nmIds = rows.map((row) => row.nm_id);
   const uniqueNmIds = new Set(nmIds);
 
   if (uniqueNmIds.size !== nmIds.length) {
