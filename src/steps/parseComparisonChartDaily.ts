@@ -62,7 +62,7 @@ export type ParsedComparisonChartDailyPoint = {
   granularity: "day";
   nmId: string;
   metricDate: string;
-  valueNumeric: number | null;
+  valueNumeric: number | string | null;
   valueState: "actual" | "estimated" | "zero" | "missing" | "missing_rendered_as_zero";
   isBaselineZero: boolean;
   unit: string | null;
@@ -478,12 +478,14 @@ function normalizeMetricDate(value: string): string {
   throw new Error(`schema_changed: unsupported sales funnel date "${value}"`);
 }
 
-function metricValueState(valueNumeric: number | null): ParsedComparisonChartDailyPoint["valueState"] {
+function metricValueState(
+  valueNumeric: number | string | null
+): ParsedComparisonChartDailyPoint["valueState"] {
   if (valueNumeric === null) {
     return "missing";
   }
 
-  return valueNumeric === 0 ? "zero" : "actual";
+  return Number(valueNumeric) === 0 ? "zero" : "actual";
 }
 
 function numericMetricValue(row: SalesFunnelRow | undefined, apiField: string): number | null {
@@ -494,6 +496,61 @@ function numericMetricValue(row: SalesFunnelRow | undefined, apiField: string): 
   const value = (row as unknown as Record<string, unknown>)[apiField];
 
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function exactIntegerMetricValue(
+  row: SalesFunnelRow | undefined,
+  apiField: string
+): string | null {
+  if (row === undefined) {
+    return null;
+  }
+
+  const value = (row as unknown as Record<string, unknown>)[apiField];
+
+  if (typeof value === "number" && Number.isFinite(value) && Number.isInteger(value)) {
+    return String(value);
+  }
+
+  if (typeof value === "string" && /^\d+$/u.test(value.trim())) {
+    return value.trim();
+  }
+
+  throw new Error(`schema_changed: expected integer API value for ${apiField}, got ${String(value)}`);
+}
+
+function apiMetricValue(
+  row: SalesFunnelRow | undefined,
+  metric: ComparisonChartMetric
+): number | string | null {
+  if (metric.apiField === "viewCount") {
+    return exactIntegerMetricValue(row, metric.apiField);
+  }
+
+  return numericMetricValue(row, metric.apiField);
+}
+
+function classifyApiValue(
+  metric: ComparisonChartMetric,
+  valueNumeric: number | string | null
+): Pick<ParsedComparisonChartDailyPoint, "valueNumeric" | "valueState" | "isBaselineZero"> {
+  if (
+    valueNumeric !== null &&
+    Number(valueNumeric) === 0 &&
+    isMissingWhenRenderedAsZeroMetric(metric.name)
+  ) {
+    return {
+      valueNumeric: null,
+      valueState: "missing_rendered_as_zero",
+      isBaselineZero: true
+    };
+  }
+
+  return {
+    valueNumeric,
+    valueState: metricValueState(valueNumeric),
+    isBaselineZero: false
+  };
 }
 
 function isWbHistoryReportArray(value: unknown): value is WbHistoryReport[] {
@@ -966,8 +1023,7 @@ export async function parseComparisonChartDailyFromApi(
     nmIds.flatMap((nmId, nmIndex) =>
       dates.map((metricDate) => {
         const row = rowsByNmIdAndDate.get(`${nmId}:${metricDate}`);
-        const valueNumeric = numericMetricValue(row, metric.apiField);
-        const valueState = metricValueState(valueNumeric);
+        const classifiedValue = classifyApiValue(metric, apiMetricValue(row, metric));
 
         return {
           metricName: metric.name,
@@ -975,9 +1031,9 @@ export async function parseComparisonChartDailyFromApi(
           granularity: "day" as const,
           nmId: String(nmId),
           metricDate,
-          valueNumeric,
-          valueState,
-          isBaselineZero: false,
+          valueNumeric: classifiedValue.valueNumeric,
+          valueState: classifiedValue.valueState,
+          isBaselineZero: classifiedValue.isBaselineZero,
           unit: metric.unit,
           source: "api_sales_funnel" as const,
           strokeColor: CHART_COLORS[nmIndex] ?? "",
