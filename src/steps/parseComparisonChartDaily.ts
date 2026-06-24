@@ -4,17 +4,56 @@ import type { ParsedExistingComparisonReport } from "./parseExistingComparisonLi
 export type ComparisonChartMetric = {
   name: string;
   code: string;
+  apiField: string;
   unit: string | null;
 };
 
 export const COMPARISON_CHART_METRICS: ComparisonChartMetric[] = [
-  { name: "Показы", code: "shows", unit: "шт" },
-  { name: "CTR", code: "ctr", unit: "%" },
-  { name: "Конверсия в корзину", code: "cart_conversion", unit: "%" },
-  { name: "Конверсия в заказ", code: "order_conversion", unit: "%" },
-  { name: "Процент выкупа", code: "buyout_percent", unit: "%" },
-  { name: "Медианная цена покупателя", code: "median_buyer_price", unit: "₽" },
-  { name: "Средняя позиция", code: "avg_position", unit: null }
+  { name: "Показы", code: "shows", apiField: "viewCount", unit: "шт" },
+  { name: "Переходы в карточку", code: "card_visits", apiField: "openCard", unit: "шт" },
+  { name: "CTR", code: "ctr", apiField: "CTR", unit: "%" },
+  {
+    name: "Добавления в корзину",
+    code: "cart_additions",
+    apiField: "addToCart",
+    unit: "шт"
+  },
+  {
+    name: "Конверсия в корзину",
+    code: "cart_conversion",
+    apiField: "openToCart",
+    unit: "%"
+  },
+  { name: "Заказы", code: "orders", apiField: "orders", unit: "шт" },
+  {
+    name: "Заказали на сумму",
+    code: "ordered_amount",
+    apiField: "ordersSum",
+    unit: "₽"
+  },
+  {
+    name: "Конверсия в заказ",
+    code: "order_conversion",
+    apiField: "cartToOrder",
+    unit: "%"
+  },
+  { name: "Выкупы", code: "buyout_count", apiField: "buyoutCount", unit: "шт" },
+  { name: "Выкупили на сумму", code: "buyout_amount", apiField: "buyoutSum", unit: "₽" },
+  {
+    name: "Процент выкупа",
+    code: "buyout_percent",
+    apiField: "buyoutPercent",
+    unit: "%"
+  },
+  { name: "Отмены", code: "cancel_count", apiField: "cancelCount", unit: "шт" },
+  {
+    name: "Медианная цена покупателя",
+    code: "median_buyer_price",
+    apiField: "medianPrice",
+    unit: "₽"
+  },
+  { name: "Отменили на сумму", code: "cancel_amount", apiField: "cancelSum", unit: "₽" },
+  { name: "Средняя позиция", code: "avg_position", apiField: "avgPosition", unit: null }
 ];
 
 export type ParsedComparisonChartDailyPoint = {
@@ -23,9 +62,11 @@ export type ParsedComparisonChartDailyPoint = {
   granularity: "day";
   nmId: string;
   metricDate: string;
-  valueNumeric: number;
+  valueNumeric: number | null;
+  valueState: "actual" | "estimated" | "zero" | "missing" | "missing_rendered_as_zero";
+  isBaselineZero: boolean;
   unit: string | null;
-  source: "svg_path";
+  source: "api_sales_funnel" | "svg_path";
   strokeColor: string;
   rawPayload: Record<string, unknown>;
 };
@@ -53,6 +94,7 @@ type SvgSeries = {
   values: Array<{
     dateIndexRatio: number;
     valueNumeric: number;
+    isBaselineZero: boolean;
     rawPoint: { x: number; y: number };
   }>;
 };
@@ -66,6 +108,77 @@ type SvgChartPayload = {
   axisPairs: Array<{ value: number; y: number }>;
   series: SvgSeries[];
 };
+
+type WbHistoryReport = {
+  ID: string;
+  date: string;
+  nms: Array<{
+    nmID: number;
+    nmName?: string;
+    mainPhoto?: string;
+    isDeleted?: boolean;
+  }>;
+  status: {
+    available: boolean;
+    date?: string;
+  };
+};
+
+type SalesFunnelRow = {
+  nmID: number;
+  nmName: string;
+  dt: string;
+  openCard: number;
+  addToCart: number;
+  openToCart: number;
+  orders: number;
+  cartToOrder: number;
+  ordersSum: number;
+  buyoutCount: number;
+  buyoutSum: number;
+  buyoutPercent: number;
+  cancelCount: number;
+  cancelSum: number;
+  avgPosition: number;
+  CTR: number;
+  viewCount: number;
+  medianPrice: number;
+};
+
+type WbDetailReport = {
+  ID?: string;
+  salesFunnel: {
+    byDay: SalesFunnelRow[];
+    byWeek?: SalesFunnelRow[];
+    byMonth?: SalesFunnelRow[];
+  };
+  commonParams?: unknown[];
+  searchQueries?: unknown[];
+};
+
+type CapturedComparisonApiResponse = {
+  url: string;
+  status: number;
+  requestBody: unknown;
+  payload: unknown;
+  capturedAt: string;
+};
+
+type ComparisonApiCapture = {
+  historyResponses: CapturedComparisonApiResponse[];
+  detailResponses: CapturedComparisonApiResponse[];
+  pending: Set<Promise<void>>;
+};
+
+const CHART_COLORS = [
+  "#8B3DFF",
+  "#E83E8C",
+  "#F59E0B",
+  "#65C914",
+  "#0EA5C6"
+];
+
+const COMPARISON_API_CAPTURE_KEY = Symbol("comparisonApiCapture");
 
 function toIsoDate(day: number, month: number, year: number): string {
   return `${year}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
@@ -115,8 +228,414 @@ function getNmIds(report: ParsedExistingComparisonReport): string[] {
     .slice(0, 5);
 }
 
+function getNumericNmIds(report: ParsedExistingComparisonReport): number[] {
+  return getNmIds(report)
+    .map((nmId) => Number(nmId))
+    .filter((nmId) => Number.isInteger(nmId));
+}
+
 function clampIndex(index: number, maxIndex: number): number {
   return Math.max(0, Math.min(maxIndex, index));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function unwrapDataPayload(value: unknown): unknown {
+  if (isRecord(value) && "data" in value) {
+    return value.data;
+  }
+
+  return value;
+}
+
+function getComparisonApiCapture(page: Page): ComparisonApiCapture {
+  const pageWithCapture = page as Page & {
+    [COMPARISON_API_CAPTURE_KEY]?: ComparisonApiCapture;
+  };
+
+  pageWithCapture[COMPARISON_API_CAPTURE_KEY] ??= {
+    historyResponses: [],
+    detailResponses: [],
+    pending: new Set()
+  };
+
+  return pageWithCapture[COMPARISON_API_CAPTURE_KEY];
+}
+
+function parseMaybeJson(value: string | null): unknown {
+  if (value === null || value.trim() === "") {
+    return null;
+  }
+
+  try {
+    return JSON.parse(value);
+  } catch {
+    return value;
+  }
+}
+
+export function attachComparisonApiCapture(page: Page): void {
+  const capture = getComparisonApiCapture(page);
+  const pageWithCapture = page as Page & {
+    __comparisonApiCaptureAttached?: boolean;
+  };
+
+  if (pageWithCapture.__comparisonApiCaptureAttached) {
+    return;
+  }
+
+  pageWithCapture.__comparisonApiCaptureAttached = true;
+
+  page.on("response", (response) => {
+    const url = response.url();
+    const isHistory = url.includes("/competitor-comparison/history");
+    const isDetail = url.includes("/competitor-comparison/nms/detail");
+
+    if (!isHistory && !isDetail) {
+      return;
+    }
+
+    const pending = (async () => {
+      if (response.status() < 200 || response.status() >= 300) {
+        return;
+      }
+
+      try {
+        const payload = unwrapDataPayload(await response.json());
+        const capturedResponse: CapturedComparisonApiResponse = {
+          url,
+          status: response.status(),
+          requestBody: parseMaybeJson(response.request().postData()),
+          payload,
+          capturedAt: new Date().toISOString()
+        };
+
+        if (isHistory) {
+          capture.historyResponses.push(capturedResponse);
+        }
+
+        if (isDetail) {
+          capture.detailResponses.push(capturedResponse);
+        }
+      } catch {
+        // Non-JSON or unavailable bodies are ignored; the UI can still continue.
+      }
+    })();
+
+    capture.pending.add(pending);
+    void pending.finally(() => {
+      capture.pending.delete(pending);
+    });
+  });
+}
+
+async function flushComparisonApiCapture(capture: ComparisonApiCapture): Promise<void> {
+  const pending = [...capture.pending];
+
+  if (pending.length === 0) {
+    return;
+  }
+
+  await Promise.allSettled(pending);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+async function waitForCapturedApiResponse<T>(
+  page: Page,
+  finder: (capture: ComparisonApiCapture) => T | null,
+  errorMessage: string
+): Promise<T> {
+  const capture = getComparisonApiCapture(page);
+  const startedAt = Date.now();
+
+  while (Date.now() - startedAt < 30_000) {
+    await flushComparisonApiCapture(capture);
+
+    const found = finder(capture);
+
+    if (found !== null) {
+      return found;
+    }
+
+    await sleep(250);
+  }
+
+  throw new Error(errorMessage);
+}
+
+function minuteKey(value: string | null | undefined): string | null {
+  if (value === null || value === undefined || value.trim() === "") {
+    return null;
+  }
+
+  const date = new Date(value);
+
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return date.toISOString().slice(0, 16);
+}
+
+function sameNmSet(left: number[], right: number[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+
+  const leftSorted = [...left].sort((a, b) => a - b);
+  const rightSorted = [...right].sort((a, b) => a - b);
+
+  return leftSorted.every((value, index) => value === rightSorted[index]);
+}
+
+function findMatchingHistoryReport(
+  historyReports: WbHistoryReport[],
+  report: ParsedExistingComparisonReport,
+  nmIds: number[]
+): WbHistoryReport {
+  const availableUntilKey = minuteKey(report.availableUntilAt);
+  const sameNmsReports = historyReports.filter((historyReport) =>
+    sameNmSet(
+      historyReport.nms.map((item) => item.nmID),
+      nmIds
+    )
+  );
+
+  if (sameNmsReports.length === 0) {
+    throw new Error("empty_result: WB history API did not return selected 5 SKU report");
+  }
+
+  if (availableUntilKey !== null) {
+    const exactByAvailableUntil = sameNmsReports.filter(
+      (historyReport) => minuteKey(historyReport.status.date) === availableUntilKey
+    );
+
+    if (exactByAvailableUntil.length === 1) {
+      return exactByAvailableUntil[0];
+    }
+  }
+
+  if (report.comparisonDate !== null) {
+    const exactByDate = sameNmsReports.filter((historyReport) =>
+      historyReport.date.startsWith(report.comparisonDate ?? "")
+    );
+
+    if (exactByDate.length === 1) {
+      return exactByDate[0];
+    }
+  }
+
+  if (sameNmsReports.length === 1) {
+    return sameNmsReports[0];
+  }
+
+  throw new Error(
+    `ambiguous_result: WB history API returned ${sameNmsReports.length} reports with the same 5 SKU`
+  );
+}
+
+async function readVisibleComparisonPeriod(page: Page): Promise<{ start: string; end: string }> {
+  const periodText = await page.evaluate<string>(String.raw`
+    (() => {
+      const normalize = (value) => String(value || "").replace(/\s+/g, " ").trim();
+      const periodRegex = /Данные за период с \d{2}\.\d{2}\.\d{4} по \d{2}\.\d{2}\.\d{4}/u;
+      const periodText = Array.from(document.querySelectorAll("body *"))
+        .map((element) => normalize(element.textContent))
+        .map((text) => text.match(periodRegex)?.[0] || null)
+        .find((text) => text !== null);
+
+      if (!periodText) {
+        throw new Error("schema_changed: chart period text was not found");
+      }
+
+      return periodText;
+    })()
+  `);
+
+  return parsePeriodRange(periodText);
+}
+
+function normalizeMetricDate(value: string): string {
+  const isoMatch = value.match(/^(\d{4})-(\d{2})-(\d{2})/u);
+
+  if (isoMatch !== null) {
+    return `${isoMatch[1]}-${isoMatch[2]}-${isoMatch[3]}`;
+  }
+
+  const russianMatch = value.match(/^(\d{2})\.(\d{2})\.(\d{4})/u);
+
+  if (russianMatch !== null) {
+    return `${russianMatch[3]}-${russianMatch[2]}-${russianMatch[1]}`;
+  }
+
+  throw new Error(`schema_changed: unsupported sales funnel date "${value}"`);
+}
+
+function metricValueState(valueNumeric: number | null): ParsedComparisonChartDailyPoint["valueState"] {
+  if (valueNumeric === null) {
+    return "missing";
+  }
+
+  return valueNumeric === 0 ? "zero" : "actual";
+}
+
+function numericMetricValue(row: SalesFunnelRow | undefined, apiField: string): number | null {
+  if (row === undefined) {
+    return null;
+  }
+
+  const value = (row as unknown as Record<string, unknown>)[apiField];
+
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function isWbHistoryReportArray(value: unknown): value is WbHistoryReport[] {
+  return (
+    Array.isArray(value) &&
+    value.every(
+      (item) =>
+        isRecord(item) &&
+        typeof item.ID === "string" &&
+        Array.isArray(item.nms) &&
+        isRecord(item.status)
+    )
+  );
+}
+
+function isWbDetailReport(value: unknown): value is WbDetailReport {
+  return (
+    isRecord(value) &&
+    isRecord(value.salesFunnel) &&
+    Array.isArray(value.salesFunnel.byDay)
+  );
+}
+
+function requestBodyRecord(
+  response: CapturedComparisonApiResponse
+): Record<string, unknown> | null {
+  return isRecord(response.requestBody) ? response.requestBody : null;
+}
+
+function requestPeriodMatches(
+  response: CapturedComparisonApiResponse,
+  periodStart: string,
+  periodEnd: string
+): boolean {
+  const requestBody = requestBodyRecord(response);
+
+  if (requestBody === null || !isRecord(requestBody.period)) {
+    return false;
+  }
+
+  return requestBody.period.start === periodStart && requestBody.period.end === periodEnd;
+}
+
+function requestIdMatches(
+  response: CapturedComparisonApiResponse,
+  comparisonId: string
+): boolean {
+  return requestBodyRecord(response)?.id === comparisonId;
+}
+
+async function waitForCapturedHistoryReport(
+  page: Page,
+  report: ParsedExistingComparisonReport,
+  nmIds: number[]
+): Promise<WbHistoryReport> {
+  return waitForCapturedApiResponse(
+    page,
+    (capture) => {
+      for (const response of [...capture.historyResponses].reverse()) {
+        if (!isWbHistoryReportArray(response.payload)) {
+          continue;
+        }
+
+        try {
+          const match = findMatchingHistoryReport(response.payload, report, nmIds);
+          return match;
+        } catch {
+          continue;
+        }
+      }
+
+      return null;
+    },
+    "empty_result: selected comparison report was not captured from WB history API response"
+  );
+}
+
+async function waitForCapturedDetailReport(
+  page: Page,
+  options: {
+    comparisonId: string;
+    periodStart: string;
+    periodEnd: string;
+  }
+): Promise<{
+  detail: WbDetailReport;
+  response: CapturedComparisonApiResponse;
+}> {
+  return waitForCapturedApiResponse(
+    page,
+    (capture) => {
+      for (const response of [...capture.detailResponses].reverse()) {
+        if (
+          !requestIdMatches(response, options.comparisonId) ||
+          !requestPeriodMatches(response, options.periodStart, options.periodEnd) ||
+          !isWbDetailReport(response.payload)
+        ) {
+          continue;
+        }
+
+        return {
+          detail: response.payload,
+          response
+        };
+      }
+
+      return null;
+    },
+    "empty_result: selected quarter comparison report was not captured from WB detail API response"
+  );
+}
+
+function isMissingWhenRenderedAsZeroMetric(metricName: string): boolean {
+  return metricName === "Медианная цена покупателя" || metricName === "Средняя позиция";
+}
+
+function classifySvgValue(
+  metricName: string,
+  valueNumeric: number,
+  isBaselineZero: boolean
+): Pick<ParsedComparisonChartDailyPoint, "valueNumeric" | "valueState" | "isBaselineZero"> {
+  if (isBaselineZero && isMissingWhenRenderedAsZeroMetric(metricName)) {
+    return {
+      valueNumeric: null,
+      valueState: "missing_rendered_as_zero",
+      isBaselineZero
+    };
+  }
+
+  if (isBaselineZero) {
+    return {
+      valueNumeric: 0,
+      valueState: "zero",
+      isBaselineZero
+    };
+  }
+
+  return {
+    valueNumeric,
+    valueState: "estimated",
+    isBaselineZero
+  };
 }
 
 function combineComparisonChartDaily(
@@ -165,29 +684,27 @@ async function selectComparisonChartMetric(
   await metricTab.click();
 
   await page.waitForFunction(
-    (metricName) => {
-      const normalize = (value: string | null): string =>
-        String(value || "").replace(/\s+/g, " ").trim();
-      const activeMetric = Array.from(
-        document.querySelectorAll('span[role="presentation"]')
-      )
-        .map((element) => ({
-          text: normalize(element.textContent),
-          className: String(element.className || "")
-        }))
-        .find((item) => item.text === metricName);
-      const chartPaths = Array.from(document.querySelectorAll("path.recharts-line-curve"));
+    String.raw`
+      (() => {
+        const metricName = ${JSON.stringify(metric.name)};
+        const normalize = (value) => String(value || "").replace(/\s+/g, " ").trim();
+        const activeMetric = [...document.querySelectorAll('span[role="presentation"]')]
+          .map((element) => ({
+            text: normalize(element.textContent),
+            className: String(element.className || "")
+          }))
+          .find((item) => item.text === metricName);
+        const chartPaths = [...document.querySelectorAll("path.recharts-line-curve")];
 
-      return (
-        Boolean(activeMetric?.className.includes("active")) &&
-        chartPaths.length >= 5 &&
-        chartPaths.every((path) => {
-          const numbers = (path.getAttribute("d") || "").match(/-?[0-9]+(?:\.[0-9]+)?/g) || [];
-          return numbers.length >= 2;
-        })
-      );
-    },
-    metric.name,
+        return Boolean(activeMetric?.className.includes("active")) &&
+          chartPaths.length >= 5 &&
+          chartPaths.every((path) => {
+            const numbers = (path.getAttribute("d") || "").match(/-?[0-9]+(?:\.[0-9]+)?/g) || [];
+            return numbers.length >= 2;
+          });
+      })()
+    `,
+    undefined,
     { timeout: 30_000 }
   );
 }
@@ -203,15 +720,14 @@ async function parseActiveComparisonChartDaily(
     throw new Error(`empty_result: expected 5 SKU for chart parsing, got ${nmIds.length}`);
   }
 
-  const payload = await page.evaluate<
-    SvgChartPayload,
-    { metricName: string; metricUnit: string | null }
-  >(({ metricName, metricUnit }) => {
-      const normalize = (value: string | null): string =>
-        String(value || "").replace(/\s+/g, " ").trim();
+  const payload = await page.evaluate<SvgChartPayload>(String.raw`
+    (() => {
+      const metricName = ${JSON.stringify(metric.name)};
+      const metricUnit = ${JSON.stringify(metric.unit)};
+      const normalize = (value) => String(value || "").replace(/\s+/g, " ").trim();
       const numberRegex = /-?[0-9]+(?:\.[0-9]+)?/g;
       const periodRegex = /Данные за период с \d{2}\.\d{2}\.\d{4} по \d{2}\.\d{2}\.\d{4}/u;
-      const parseAxisValue = (text: string): number | null => {
+      const parseAxisValue = (text) => {
         const cleaned = normalize(text).replace(/\u00a0/g, " ");
         const match = cleaned.match(/-?[0-9]+(?:[,.][0-9]+)?/);
 
@@ -222,7 +738,7 @@ async function parseActiveComparisonChartDaily(
         const multiplier = /млн/i.test(cleaned) ? 1000000 : /тыс/i.test(cleaned) ? 1000 : 1;
         return Number(match[0].replace(",", ".")) * multiplier;
       };
-      const isAxisValueText = (text: string): boolean => {
+      const isAxisValueText = (text) => {
         const cleaned = normalize(text).replace(/\u00a0/g, " ");
 
         if (/^[0-9]{2}\.[0-9]{2}$/.test(cleaned)) {
@@ -231,13 +747,13 @@ async function parseActiveComparisonChartDaily(
 
         return /^-?[0-9]+(?:[,.][0-9]+)?(?:\s*(?:тыс\.?|млн\.?|₽|%))?$/i.test(cleaned);
       };
-      const parsePathPoints = (d: string): Array<{ x: number; y: number }> => {
-        const points: Array<{ x: number; y: number }> = [];
+      const parsePathPoints = (d) => {
+        const points = [];
         const commands = [...d.matchAll(/([MC])([^MC]*)/g)];
 
         for (const commandMatch of commands) {
           const command = commandMatch[1];
-          const numbers = ((commandMatch[2] ?? "").match(numberRegex) || []).map(Number);
+          const numbers = ((commandMatch[2] || "").match(numberRegex) || []).map(Number);
 
           if (command === "M" && numbers.length >= 2) {
             points.push({ x: numbers[0], y: numbers[1] });
@@ -252,10 +768,7 @@ async function parseActiveComparisonChartDaily(
 
         return points;
       };
-      const linearValue = (
-        y: number,
-        axisPairs: Array<{ value: number; y: number }>
-      ): number => {
+      const linearValue = (y, axisPairs) => {
         const count = axisPairs.length;
         const sumY = axisPairs.reduce((sum, pair) => sum + pair.y, 0);
         const sumValue = axisPairs.reduce((sum, pair) => sum + pair.value, 0);
@@ -283,7 +796,7 @@ async function parseActiveComparisonChartDaily(
       const periodText = Array.from(document.querySelectorAll("body *"))
         .map((element) => normalize(element.textContent))
         .map((text) => text.match(periodRegex)?.[0] || null)
-        .find((text): text is string => text !== null);
+        .find((text) => text !== null);
 
       if (periodText === undefined) {
         throw new Error("schema_changed: chart period text was not found");
@@ -302,7 +815,7 @@ async function parseActiveComparisonChartDaily(
         .map((text) => normalize(text.textContent || ""))
         .filter((text) => isAxisValueText(text))
         .map((text) => parseAxisValue(text))
-        .filter((value): value is number => value !== null))]
+        .filter((value) => value !== null))]
         .sort((left, right) => left - right);
       const axisPairs = axisValues
         .slice(0, horizontalGridLines.length)
@@ -319,6 +832,7 @@ async function parseActiveComparisonChartDaily(
         throw new Error("schema_changed: chart X axis scale was not found");
       }
 
+      const zeroAxisY = axisPairs.find((pair) => pair.value === 0)?.y ?? null;
       const series = Array.from(svg.node.querySelectorAll("path.recharts-line-curve"))
         .map((path) => {
           const rawPoints = parsePathPoints(path.getAttribute("d") || "");
@@ -327,6 +841,7 @@ async function parseActiveComparisonChartDaily(
             values: rawPoints.map((point) => ({
               dateIndexRatio: (point.x - plotXMin) / (plotXMax - plotXMin),
               valueNumeric: linearValue(point.y, axisPairs),
+              isBaselineZero: zeroAxisY !== null && Math.abs(point.y - zeroAxisY) < 0.001,
               rawPoint: point
             }))
           };
@@ -346,9 +861,8 @@ async function parseActiveComparisonChartDaily(
         axisPairs,
         series
       };
-    },
-    { metricName: metric.name, metricUnit: metric.unit }
-  );
+    })()
+  `);
   const { start, end } = parsePeriodRange(payload.periodText);
   const dates = generateDates(start, end);
 
@@ -367,6 +881,11 @@ async function parseActiveComparisonChartDaily(
         dates.length - 1
       );
       const metricDate = dates[dateIndex];
+      const classifiedValue = classifySvgValue(
+        payload.metricName,
+        value.valueNumeric,
+        value.isBaselineZero
+      );
 
       seenDates.set(metricDate, {
         metricName: payload.metricName,
@@ -374,7 +893,9 @@ async function parseActiveComparisonChartDaily(
         granularity: "day" as const,
         nmId: nmIds[seriesIndex],
         metricDate,
-        valueNumeric: value.valueNumeric,
+        valueNumeric: classifiedValue.valueNumeric,
+        valueState: classifiedValue.valueState,
+        isBaselineZero: classifiedValue.isBaselineZero,
         unit: payload.unit,
         source: "svg_path" as const,
         strokeColor: series.strokeColor,
@@ -382,6 +903,8 @@ async function parseActiveComparisonChartDaily(
           x: value.rawPoint.x,
           y: value.rawPoint.y,
           dateIndex,
+          isBaselineZero: classifiedValue.isBaselineZero,
+          valueState: classifiedValue.valueState,
           parser: "recharts_svg_path_endpoint_v2",
           axisPairs: payload.axisPairs,
           plotXMin: payload.plotXMin,
@@ -397,6 +920,87 @@ async function parseActiveComparisonChartDaily(
 
   return {
     metricName: payload.metricName,
+    periodType: "quarter",
+    granularity: "day",
+    periodStart: start,
+    periodEnd: end,
+    points
+  };
+}
+
+export async function parseComparisonChartDailyFromApi(
+  page: Page,
+  report: ParsedExistingComparisonReport
+): Promise<ParsedComparisonChartDailyBatch> {
+  const nmIds = getNumericNmIds(report);
+
+  if (nmIds.length !== 5) {
+    throw new Error(`empty_result: expected 5 SKU for chart API parsing, got ${nmIds.length}`);
+  }
+
+  const { start, end } = await readVisibleComparisonPeriod(page);
+  const dates = generateDates(start, end);
+  const historyReport = await waitForCapturedHistoryReport(page, report, nmIds);
+  const capturedDetail = await waitForCapturedDetailReport(page, {
+    comparisonId: historyReport.ID,
+    periodStart: start,
+    periodEnd: end
+  });
+  const { detail } = capturedDetail;
+  const selectedNmIds = new Set(nmIds);
+  const rowsByNmIdAndDate = new Map<string, SalesFunnelRow>();
+
+  for (const row of detail.salesFunnel.byDay) {
+    if (!selectedNmIds.has(row.nmID)) {
+      continue;
+    }
+
+    rowsByNmIdAndDate.set(`${row.nmID}:${normalizeMetricDate(row.dt)}`, row);
+  }
+
+  if (rowsByNmIdAndDate.size === 0) {
+    throw new Error("empty_result: WB detail API returned no by-day rows for selected SKU");
+  }
+
+  const points = COMPARISON_CHART_METRICS.flatMap((metric) =>
+    nmIds.flatMap((nmId, nmIndex) =>
+      dates.map((metricDate) => {
+        const row = rowsByNmIdAndDate.get(`${nmId}:${metricDate}`);
+        const valueNumeric = numericMetricValue(row, metric.apiField);
+        const valueState = metricValueState(valueNumeric);
+
+        return {
+          metricName: metric.name,
+          periodType: "quarter" as const,
+          granularity: "day" as const,
+          nmId: String(nmId),
+          metricDate,
+          valueNumeric,
+          valueState,
+          isBaselineZero: false,
+          unit: metric.unit,
+          source: "api_sales_funnel" as const,
+          strokeColor: CHART_COLORS[nmIndex] ?? "",
+          rawPayload: {
+            parser: "wb_competitor_comparison_nms_detail_v3",
+            sourceMode: "captured_browser_response",
+            apiEndpoint: capturedDetail.response.url,
+            apiField: metric.apiField,
+            comparisonId: historyReport.ID,
+            historyDate: historyReport.date,
+            historyAvailableUntil: historyReport.status.date ?? null,
+            capturedAt: capturedDetail.response.capturedAt,
+            requestBody: capturedDetail.response.requestBody,
+            rowFound: row !== undefined,
+            apiRow: row ?? null
+          }
+        };
+      })
+    )
+  );
+
+  return {
+    metricNames: COMPARISON_CHART_METRICS.map((metric) => metric.name),
     periodType: "quarter",
     granularity: "day",
     periodStart: start,

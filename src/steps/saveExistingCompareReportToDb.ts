@@ -303,12 +303,14 @@ export async function saveComparisonChartDailyToDb(
               nm_id,
               metric_date,
               value_numeric,
+              value_state,
+              is_baseline_zero,
               unit,
               source,
               stroke_color,
               raw_payload
             )
-            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11::jsonb)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb)
           `,
           [
             options.reportId,
@@ -318,6 +320,8 @@ export async function saveComparisonChartDailyToDb(
             point.nmId,
             point.metricDate,
             point.valueNumeric,
+            point.valueState,
+            point.isBaselineZero,
             point.unit,
             point.source,
             point.strokeColor,

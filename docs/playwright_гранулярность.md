@@ -52,7 +52,7 @@ https://seller.wildberries.ru/platform-analytics/niche-analysis/item?id=643
 
 Это read-only сценарий. Он открывает ту же страницу `https://seller.wildberries.ru/platform-analytics/cards-comparison`, но не нажимает `Сравнить карточки`.
 
-Цель: минимально прочитать один видимый блок готового сравнения без скролла и массового обхода. Сценарий сохраняет плашку вида `Доступен до 26 июня, 15:41`, 5 SKU из первого сверху видимого блока на текущем экране, одним кликом входит в этот отчет, выбирает период `Квартал` и читает дневные точки текущего графика из уже отрисованного SVG.
+Цель: минимально прочитать один видимый блок готового сравнения без скролла и массового обхода. Сценарий сохраняет плашку вида `Доступен до 26 июня, 15:41`, 5 SKU из первого сверху видимого блока на текущем экране, одним кликом входит в этот отчет, выбирает период `Квартал` и сохраняет дневные значения из уже загруженного WB-ответа `salesFunnel.byDay`.
 
 | N | Функция | Что делает | Проверка успешности |
 |---|---|---|---|
@@ -61,8 +61,8 @@ https://seller.wildberries.ru/platform-analytics/niche-analysis/item?id=643
 | 3 | `saveVisibleComparisonReportToDb` | Сохраняет один выбранный блок в `wb_analytics.compare_card_reports`, его 5 SKU в `wb_analytics.compare_card_report_items`, переводит run в `success` | В PostgreSQL записан 1 отчет и 5 items |
 | 4 | `openVisibleComparisonReport` | Кликает по выбранной строке сравнения, найденной по `available_until_text` и первому `nm_id` | Появилась кнопка `История сравнений`, значит открыт экран отчета |
 | 5 | `selectComparisonQuarterPeriod` | Нажимает кнопку `Квартал` в открытом отчете сравнения | Кнопка `Квартал` видна, блок `Данные за период...` обновлен |
-| 6-12 | `parseComparisonChartDaily:*` | По очереди выбирает метрики `Показы`, `CTR`, `Конверсия в корзину`, `Конверсия в заказ`, `Процент выкупа`, `Медианная цена покупателя`, `Средняя позиция`; для нижних метрик использует прокрутку внутреннего списка метрик графика; после каждого клика читает Recharts SVG: 5 линий, endpoint-координаты, шкалу Y и период из текста `Данные за период...` | Для каждой метрики найден активный пункт, 5 SVG-серий и дневные точки, доступные в отрисованном графике |
-| 13 | `saveComparisonChartDailyToDb` | Сохраняет дневные точки всех выбранных метрик в `wb_analytics.compare_card_report_chart_daily` и добавляет краткую chart-сводку в `automation.runs.scenario_config` | В PostgreSQL записаны точки графика по `metric_name`, `nm_id` и `metric_date` |
+| 6 | `parseComparisonChartDailyFromApi` | Не кликает разделы графика и не читает SVG; берет captured response, который WB-фронт уже получил для открытого отчета и периода `Квартал`, и раскладывает 15 полей `salesFunnel.byDay` по `metric_name`, `nm_id`, `metric_date` | Найден captured `history` для этих 5 SKU и captured `nms/detail` для выбранного квартала |
+| 7 | `saveComparisonChartDailyToDb` | Сохраняет дневные точки всех 15 разделов в `wb_analytics.compare_card_report_chart_daily` и добавляет краткую chart-сводку в `automation.runs.scenario_config` | В PostgreSQL записаны точки с `source = api_sales_funnel` |
 
 ## Инциденты
 

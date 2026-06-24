@@ -4,9 +4,8 @@ import type { StepRunner } from "../core/stepRunner.js";
 import { openCompareCardsPage } from "../steps/openCompareCardsPage.js";
 import { openVisibleComparisonReport } from "../steps/openVisibleComparisonReport.js";
 import {
-  COMPARISON_CHART_METRICS,
-  combineParsedComparisonChartDaily,
-  parseComparisonChartDaily
+  attachComparisonApiCapture,
+  parseComparisonChartDailyFromApi
 } from "../steps/parseComparisonChartDaily.js";
 import { parseExistingComparisonList } from "../steps/parseExistingComparisonList.js";
 import { selectComparisonQuarterPeriod } from "../steps/selectComparisonQuarterPeriod.js";
@@ -19,7 +18,7 @@ import {
 import type { ParsedExistingComparisonReport } from "../steps/parseExistingComparisonList.js";
 
 export const IMPLEMENTED_EXISTING_COMPARE_REPORTS_STEPS =
-  6 + COMPARISON_CHART_METRICS.length;
+  7;
 
 type DomRectPayload = {
   y: number;
@@ -57,6 +56,8 @@ export async function runExistingCompareReportsFlow(options: {
   let runId: string | null = null;
 
   try {
+    attachComparisonApiCapture(page);
+
     await stepRunner.runStep("openCompareCardsPage", () =>
       openCompareCardsPage(page)
     );
@@ -94,18 +95,9 @@ export async function runExistingCompareReportsFlow(options: {
       selectComparisonQuarterPeriod(page)
     );
 
-    const metricCharts = [];
-
-    for (const metric of COMPARISON_CHART_METRICS) {
-      const chart = await stepRunner.runStep(
-        `parseComparisonChartDaily:${metric.code}`,
-        () => parseComparisonChartDaily(page, selectedReport, metric)
-      );
-
-      metricCharts.push(chart);
-    }
-
-    const chartBatch = combineParsedComparisonChartDaily(metricCharts);
+    const chartBatch = await stepRunner.runStep("parseComparisonChartDailyFromApi", () =>
+      parseComparisonChartDailyFromApi(page, selectedReport)
+    );
 
     const chartSaveResult = await stepRunner.runStep(
       "saveComparisonChartDailyToDb",

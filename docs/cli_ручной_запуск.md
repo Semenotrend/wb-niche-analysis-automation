@@ -125,26 +125,20 @@ HEADLESS=false pnpm run existing-compare-reports
 6. сохраняет 5 SKU этого блока в `wb_analytics.compare_card_report_items`;
 7. одним кликом входит в этот отчет сравнения;
 8. нажимает период `Квартал`;
-9. по очереди выбирает 7 метрик графика: `Показы`, `CTR`, `Конверсия в корзину`, `Конверсия в заказ`, `Процент выкупа`, `Медианная цена покупателя`, `Средняя позиция`;
-10. после каждой выбранной метрики читает дневные точки текущего SVG без hover по графику;
-11. сохраняет точки в `wb_analytics.compare_card_report_chart_daily`.
+9. берет captured WB response `salesFunnel.byDay`, который фронт уже загрузил для открытого отчета и периода `Квартал`;
+10. раскладывает 15 полей графика в long-format по `metric_name`, `nm_id`, `metric_date`;
+11. сохраняет точки в `wb_analytics.compare_card_report_chart_daily` с `source = api_sales_funnel`.
 
 Успешный лог выглядит так:
 
 ```text
-[01/13] openCompareCardsPage success
-[02/13] parseExistingComparisonList success
-[03/13] saveVisibleComparisonReportToDb success
-[04/13] openVisibleComparisonReport success
-[05/13] selectComparisonQuarterPeriod success
-[06/13] parseComparisonChartDaily:shows success
-[07/13] parseComparisonChartDaily:ctr success
-[08/13] parseComparisonChartDaily:cart_conversion success
-[09/13] parseComparisonChartDaily:order_conversion success
-[10/13] parseComparisonChartDaily:buyout_percent success
-[11/13] parseComparisonChartDaily:median_buyer_price success
-[12/13] parseComparisonChartDaily:avg_position success
-[13/13] saveComparisonChartDailyToDb success
+[01/07] openCompareCardsPage success
+[02/07] parseExistingComparisonList success
+[03/07] saveVisibleComparisonReportToDb success
+[04/07] openVisibleComparisonReport success
+[05/07] selectComparisonQuarterPeriod success
+[06/07] parseComparisonChartDailyFromApi success
+[07/07] saveComparisonChartDailyToDb success
 [existing-compare-reports] saved 1 report rows 5 card rows ... chart daily rows opened comparison report run_id=... report_id=...
 ```
 

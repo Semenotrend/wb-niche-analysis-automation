@@ -73,6 +73,12 @@ wb_analytics
 | `wb_analytics.compare_card_report_items` | 5 SKU из видимого готового сравнения |
 | `wb_analytics.compare_card_report_chart_daily` | Дневные точки графика открытого готового сравнения карточек |
 
+В `wb_analytics.compare_card_report_chart_daily.value_numeric` допускается `NULL`.
+Для captured WB API это означает отсутствие значения: `value_state = missing`.
+Если используется legacy SVG fallback, нижняя линия у метрик `Медианная цена покупателя`
+и `Средняя позиция` хранится как `value_state = missing_rendered_as_zero`,
+`is_baseline_zero = true`.
+
 ## Почему метрики в long-format
 
 WB может менять состав показателей. Поэтому метрики не храним широкой таблицей вида `revenue_rub`, `avg_check_rub`, `buyout_pct` в колонках.
@@ -186,12 +192,12 @@ Playwright flow
   -> wb_analytics.compare_card_report_items
   -> openVisibleComparisonReport
   -> selectComparisonQuarterPeriod
-  -> parseComparisonChartDaily для 7 метрик
+  -> parseComparisonChartDailyFromApi из captured salesFunnel.byDay для 15 разделов графика
   -> wb_analytics.compare_card_report_chart_daily
   -> automation.step_logs
 ```
 
-Этот сценарий read-only по отношению к созданию сравнений в WB: он не нажимает `Сравнить карточки`, не скроллит список и не создает новое сравнение. После сохранения видимого блока он одним кликом входит в выбранный отчет и выбирает период `Квартал`.
+Этот сценарий read-only по отношению к созданию сравнений в WB: он не нажимает `Сравнить карточки`, не скроллит список и не создает новое сравнение. После сохранения видимого блока он одним кликом входит в выбранный отчет, выбирает период `Квартал` и сохраняет уже загруженный WB-фронтом detail response с `source = api_sales_funnel`.
 
 ## Incident layer
 
