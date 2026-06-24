@@ -7,6 +7,7 @@
 1. `niche-report` - собирает метрики ниши.
 2. `niche-query-stats` - собирает поисковые запросы по нише.
 3. `compare-cards` - собирает 50 карточек из раздела `Сравнение карточек` и добавляет первые 5 вручную.
+4. `existing-compare-reports` - читает один видимый готовый блок сравнения карточек в PostgreSQL, входит в этот отчет, выбирает `Квартал` и сохраняет дневной график, не нажимая `Сравнить карточки`.
 
 Для локального пользователя основной режим - SQLite: без отдельной БД, данные сохраняются в файл внутри проекта.
 
@@ -194,6 +195,26 @@ HEADLESS=false pnpm run compare-cards:sqlite
 wb_compare_card_recommendations
 automation_runs
 automation_step_logs
+```
+
+### Готовые сравнения карточек
+
+```bash
+HEADLESS=false pnpm run existing-compare-reports
+```
+
+Открывает `Сравнение карточек`, без скролла парсит первый видимый блок готового сравнения с 5 SKU, сохраняет результат в PostgreSQL, одним кликом входит в этот отчет, выбирает `Квартал` и читает дневные точки SVG по метрикам `Показы`, `CTR`, `Конверсия в корзину`, `Конверсия в заказ`, `Процент выкупа`, `Медианная цена покупателя`, `Средняя позиция`.
+
+SQLite-режима для этой команды нет.
+
+Сохраняет:
+
+```text
+wb_analytics.compare_card_reports
+wb_analytics.compare_card_report_items
+wb_analytics.compare_card_report_chart_daily
+automation.runs
+automation.step_logs
 ```
 
 ## Посмотреть собранные данные

@@ -3,7 +3,8 @@
 Этот файл нужен, чтобы вручную прогнать две автоматизации из терминала:
 
 1. сбор статистики ниши через прямой URL;
-2. сравнение карточек.
+2. сравнение карточек;
+3. чтение готовых сравнений карточек.
 
 ## Перед запуском
 
@@ -106,6 +107,57 @@ HEADLESS=false pnpm run compare-cards
 [compare-cards] saved 50 unique card IDs to DB run_id=...
 ```
 
+## 3. Готовые сравнения карточек
+
+Команда:
+
+```bash
+HEADLESS=false pnpm run existing-compare-reports
+```
+
+Что делает:
+
+1. открывает страницу `Сравнение карточек`;
+2. не нажимает `Сравнить карточки`;
+3. без скролла и кликов парсит видимый список готовых сравнений;
+4. выбирает первый сверху видимый блок, где есть ровно 5 SKU;
+5. сохраняет сам блок в `wb_analytics.compare_card_reports`;
+6. сохраняет 5 SKU этого блока в `wb_analytics.compare_card_report_items`;
+7. одним кликом входит в этот отчет сравнения;
+8. нажимает период `Квартал`;
+9. по очереди выбирает 7 метрик графика: `Показы`, `CTR`, `Конверсия в корзину`, `Конверсия в заказ`, `Процент выкупа`, `Медианная цена покупателя`, `Средняя позиция`;
+10. после каждой выбранной метрики читает дневные точки текущего SVG без hover по графику;
+11. сохраняет точки в `wb_analytics.compare_card_report_chart_daily`.
+
+Успешный лог выглядит так:
+
+```text
+[01/13] openCompareCardsPage success
+[02/13] parseExistingComparisonList success
+[03/13] saveVisibleComparisonReportToDb success
+[04/13] openVisibleComparisonReport success
+[05/13] selectComparisonQuarterPeriod success
+[06/13] parseComparisonChartDaily:shows success
+[07/13] parseComparisonChartDaily:ctr success
+[08/13] parseComparisonChartDaily:cart_conversion success
+[09/13] parseComparisonChartDaily:order_conversion success
+[10/13] parseComparisonChartDaily:buyout_percent success
+[11/13] parseComparisonChartDaily:median_buyer_price success
+[12/13] parseComparisonChartDaily:avg_position success
+[13/13] saveComparisonChartDailyToDb success
+[existing-compare-reports] saved 1 report rows 5 card rows ... chart daily rows opened comparison report run_id=... report_id=...
+```
+
+Сохраняет:
+
+```text
+wb_analytics.compare_card_reports
+wb_analytics.compare_card_report_items
+wb_analytics.compare_card_report_chart_daily
+automation.runs
+automation.step_logs
+```
+
 ## Быстрый полный прогон
 
 Если конфиг уже настроен и авторизация есть:
@@ -113,6 +165,7 @@ HEADLESS=false pnpm run compare-cards
 ```bash
 HEADLESS=false pnpm run niche-report
 HEADLESS=false pnpm run compare-cards
+HEADLESS=false pnpm run existing-compare-reports
 ```
 
 ## Проверка результата в БД
@@ -147,4 +200,16 @@ PGPASSWORD=${PGPASSWORD:-wb_niche_local} psql \
 saved_rows = 50
 distinct_nm_ids = 50
 duplicate_count = 0
+```
+
+Проверка готовых сравнений:
+
+```bash
+PGPASSWORD=${PGPASSWORD:-wb_niche_local} psql \
+  --host "${PGHOST:-127.0.0.1}" \
+  --port "${PGPORT:-7777}" \
+  --username "${PGUSER:-wb_niche}" \
+  --dbname "${PGDATABASE:-wb_niche_analysis}" \
+  -P pager=off \
+  -c "select r.run_id, count(*) as reports, count(i.item_id) as items from wb_analytics.compare_card_reports r left join wb_analytics.compare_card_report_items i on i.report_id = r.report_id group by r.run_id order by max(r.created_at) desc limit 5;"
 ```

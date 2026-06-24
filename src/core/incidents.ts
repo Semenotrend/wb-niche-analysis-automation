@@ -21,7 +21,12 @@ export function classifyIncident(error: unknown): IncidentType {
   const message = error instanceof Error ? error.message : String(error);
   const normalized = message.toLowerCase();
 
-  if (normalized.includes("captcha") || normalized.includes("капч")) {
+  if (
+    normalized.includes("captcha") ||
+    normalized.includes("капч") ||
+    normalized.includes("подозрительная активность") ||
+    normalized.includes("suspicious activity")
+  ) {
     return "captcha";
   }
 

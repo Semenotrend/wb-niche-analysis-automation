@@ -48,6 +48,22 @@ https://seller.wildberries.ru/platform-analytics/niche-analysis/item?id=643
 | 7 | `saveCompareCardIdsToDb` | Сохраняет ID карточек в `wb_analytics.compare_card_recommendations` | В БД записано 50 строк, `COUNT(*) = COUNT(DISTINCT nm_id)` для запуска |
 | 8 | `addManualCompareCards` | По `run_id` берет из `wb_analytics.compare_card_recommendations` первые 5 уникальных `nm_id` по `rank_position`, обновляет страницу, снова нажимает `Сравнить карточки`, оставляет режим `Ввести вручную`, по очереди вводит каждый артикул, нажимает `Enter` и кликает `Добавить` у найденной карточки | Добавлено 5 разных карточек; перед добавлением ID проверены на дубли, каждый клик `Добавить` привязан к карточке с конкретной ссылкой `/catalog/{nm_id}/detail.aspx` |
 
+## Сценарий "Готовые сравнения карточек"
+
+Это read-only сценарий. Он открывает ту же страницу `https://seller.wildberries.ru/platform-analytics/cards-comparison`, но не нажимает `Сравнить карточки`.
+
+Цель: минимально прочитать один видимый блок готового сравнения без скролла и массового обхода. Сценарий сохраняет плашку вида `Доступен до 26 июня, 15:41`, 5 SKU из первого сверху видимого блока на текущем экране, одним кликом входит в этот отчет, выбирает период `Квартал` и читает дневные точки текущего графика из уже отрисованного SVG.
+
+| N | Функция | Что делает | Проверка успешности |
+|---|---|---|---|
+| 1 | `openCompareCardsPage` | После авторизации переходит по ссылке `https://seller.wildberries.ru/platform-analytics/cards-comparison` | Заголовок страницы `Сравнение карточек` |
+| 2 | `parseExistingComparisonList` | Парсит текущий DOM без скролла: дату сравнения, `available_until_text`, нормализованный `available_until_at`, количество SKU, preview SKU и `raw_text` блока | Найден первый сверху видимый блок с ровно 5 SKU |
+| 3 | `saveVisibleComparisonReportToDb` | Сохраняет один выбранный блок в `wb_analytics.compare_card_reports`, его 5 SKU в `wb_analytics.compare_card_report_items`, переводит run в `success` | В PostgreSQL записан 1 отчет и 5 items |
+| 4 | `openVisibleComparisonReport` | Кликает по выбранной строке сравнения, найденной по `available_until_text` и первому `nm_id` | Появилась кнопка `История сравнений`, значит открыт экран отчета |
+| 5 | `selectComparisonQuarterPeriod` | Нажимает кнопку `Квартал` в открытом отчете сравнения | Кнопка `Квартал` видна, блок `Данные за период...` обновлен |
+| 6-12 | `parseComparisonChartDaily:*` | По очереди выбирает метрики `Показы`, `CTR`, `Конверсия в корзину`, `Конверсия в заказ`, `Процент выкупа`, `Медианная цена покупателя`, `Средняя позиция`; для нижних метрик использует прокрутку внутреннего списка метрик графика; после каждого клика читает Recharts SVG: 5 линий, endpoint-координаты, шкалу Y и период из текста `Данные за период...` | Для каждой метрики найден активный пункт, 5 SVG-серий и дневные точки, доступные в отрисованном графике |
+| 13 | `saveComparisonChartDailyToDb` | Сохраняет дневные точки всех выбранных метрик в `wb_analytics.compare_card_report_chart_daily` и добавляет краткую chart-сводку в `automation.runs.scenario_config` | В PostgreSQL записаны точки графика по `metric_name`, `nm_id` и `metric_date` |
+
 ## Инциденты
 
 Если сценарий падает, ошибка должна классифицироваться.
@@ -55,7 +71,7 @@ https://seller.wildberries.ru/platform-analytics/niche-analysis/item?id=643
 Базовые классы инцидентов:
 
 - `auth_expired` — слетела авторизация;
-- `captcha` — появилась капча;
+- `captcha` — появилась капча или экран WB `Подозрительная активность`;
 - `selector_changed` — изменился интерфейс или текст кнопки;
 - `popup_blocking` — модалка перекрыла нужный элемент;
 - `timeout` — страница или список не загрузились;

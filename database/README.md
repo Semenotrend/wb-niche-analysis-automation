@@ -69,6 +69,9 @@ wb_analytics
 | `wb_analytics.niche_search_queries` | Поисковые запросы из блока `Поисковые запросы` |
 | `wb_analytics.niche_dynamics_daily` | Дневная динамика графиков, если получим ее из DOM/API |
 | `wb_analytics.compare_card_recommendations` | 50 уникальных ID карточек из рекомендаций `Сравнение карточек` |
+| `wb_analytics.compare_card_reports` | Список уже готовых сравнений карточек с датой, сроком доступности и raw payload |
+| `wb_analytics.compare_card_report_items` | 5 SKU из видимого готового сравнения |
+| `wb_analytics.compare_card_report_chart_daily` | Дневные точки графика открытого готового сравнения карточек |
 
 ## Почему метрики в long-format
 
@@ -171,6 +174,24 @@ Playwright flow
 UNIQUE (run_id, nm_id)
 UNIQUE (run_id, rank_position)
 ```
+
+Для сценария `existing-compare-reports`:
+
+```text
+Playwright flow
+  -> openCompareCardsPage
+  -> parseExistingComparisonList
+  -> выбирает первый видимый блок с 5 SKU
+  -> wb_analytics.compare_card_reports
+  -> wb_analytics.compare_card_report_items
+  -> openVisibleComparisonReport
+  -> selectComparisonQuarterPeriod
+  -> parseComparisonChartDaily для 7 метрик
+  -> wb_analytics.compare_card_report_chart_daily
+  -> automation.step_logs
+```
+
+Этот сценарий read-only по отношению к созданию сравнений в WB: он не нажимает `Сравнить карточки`, не скроллит список и не создает новое сравнение. После сохранения видимого блока он одним кликом входит в выбранный отчет и выбирает период `Квартал`.
 
 ## Incident layer
 

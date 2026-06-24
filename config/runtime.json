@@ -1,8 +1,8 @@
 {
   "delays": {
-    "beforeActionMs": [300, 700],
-    "betweenStepsMs": [800, 1500],
-    "afterNavigationMs": [2000, 4000],
+    "beforeActionMs": [1000, 3000],
+    "betweenStepsMs": [1500, 3500],
+    "afterNavigationMs": [3000, 6000],
     "typingDelayMs": [30, 80]
   },
   "timeouts": {
