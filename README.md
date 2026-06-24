@@ -1,26 +1,137 @@
 # WB Niche Analysis Automation
 
-Локальная Playwright-автоматизация для WB Partners.
+Локальная Playwright-автоматизация для WB Partners с записью результатов в PostgreSQL.
+
+Основной текущий сценарий: читать уже готовые сравнения карточек, открывать один отчет на 5 SKU, выбирать период `Квартал` и сохранять дневные данные графика в БД.
+
+## Что делает проект
 
 Сценарии:
 
 1. `niche-report` - собирает метрики ниши.
 2. `niche-query-stats` - собирает поисковые запросы по нише.
-3. `compare-cards` - собирает 50 карточек из раздела `Сравнение карточек` и добавляет первые 5 вручную.
-4. `existing-compare-reports` - читает один видимый готовый блок сравнения карточек в PostgreSQL, входит в этот отчет, выбирает `Квартал` и сохраняет дневные значения из уже загруженного ответа WB, не нажимая `Сравнить карточки`.
+3. `compare-cards` - собирает карточки из раздела `Сравнение карточек`.
+4. `existing-compare-reports` - основной read-only flow для готовых сравнений карточек.
 
-Для локального пользователя основной режим - SQLite: без отдельной БД, данные сохраняются в файл внутри проекта.
+`existing-compare-reports` не нажимает `Сравнить карточки` и не создает новое сравнение. Он работает с уже готовым отчетом, который виден на первом экране истории сравнений.
 
 ## Что нужно установить
 
 - Node.js 20 или новее
 - pnpm
+- Docker
 - доступ к аккаунту WB Partners
 
 Если `pnpm` не установлен:
 
 ```bash
 npm install -g pnpm
+```
+
+## Текущий workflow готовых сравнений
+
+Flow `existing-compare-reports`:
+
+1. Открывает `https://seller.wildberries.ru/platform-analytics/cards-comparison`.
+2. Парсит первый видимый готовый блок сравнения с 5 SKU.
+3. Сохраняет отчет и карточки в PostgreSQL.
+4. Открывает этот отчет.
+5. Выбирает период `Квартал`.
+6. Читает уже загруженный WB-фронтом API-ответ `salesFunnel.byDay`.
+7. Сохраняет дневные значения графика в PostgreSQL.
+
+Это не SVG-парсинг и не hover по графику. Значения берутся из JSON-ответа, который сама страница WB получает для отрисовки графика.
+
+## Метрики графика
+
+Нужные для анализа метрики уже собираются:
+
+| Метрика в интерфейсе WB | API field | Единица |
+|---|---|---|
+| `Показы` | `viewCount` | `шт` |
+| `CTR` | `CTR` | `%` |
+| `Конверсия в корзину` | `openToCart` | `%` |
+| `Конверсия в заказ` | `cartToOrder` | `%` |
+| `Процент выкупа` | `buyoutPercent` | `%` |
+| `Медианная цена покупателя` | `medianPrice` | `₽` |
+| `Средняя позиция` | `avgPosition` |  |
+
+Дополнительно сейчас сохраняются исходные метрики, которые можно использовать для формул и проверок:
+
+```text
+Переходы в карточку
+Добавления в корзину
+Заказы
+Заказали на сумму
+Выкупы
+Выкупили на сумму
+Отмены
+Отменили на сумму
+```
+
+Для одного отчета на 5 SKU и периода `Квартал` получается:
+
+```text
+15 метрик * 5 SKU * 90 дней = 6750 строк
+```
+
+Если WB отдает технический `0` для `Медианная цена покупателя` или `Средняя позиция`, в нормализованной колонке сохраняется `NULL`, а исходное значение остается в `raw_payload`.
+
+## Почему сбор быстрый
+
+WB уже отдает данные графика внутри страницы. Автоматизация не делает отдельный массовый обход точек графика и не водит мышью по каждому дню.
+
+Сервер WB видит обычный пользовательский путь:
+
+```text
+открыли историю сравнений
+открыли один готовый отчет
+выбрали Квартал
+страница загрузила данные графика
+```
+
+После этого парсер локально сохраняет уже полученный браузером ответ.
+
+## PostgreSQL
+
+Локальная БД:
+
+```text
+host: 127.0.0.1
+port: 7777
+database: wb_niche_analysis
+user: wb_niche
+password: wb_niche_local
+```
+
+Строка подключения по умолчанию:
+
+```text
+postgresql://wb_niche:wb_niche_local@127.0.0.1:7777/wb_niche_analysis
+```
+
+Запустить PostgreSQL:
+
+```bash
+docker compose -f database/docker-compose.yml up -d
+```
+
+Применить миграции:
+
+```bash
+bash database/scripts/apply-migrations.sh
+```
+
+Проверить БД:
+
+```bash
+pnpm run doctor:postgres
+```
+
+Подключиться к БД:
+
+```bash
+bash database/scripts/connect.sh
 ```
 
 ## Быстрый старт
@@ -30,14 +141,15 @@ npm install -g pnpm
 ```bash
 pnpm install
 pnpm run playwright:install
-pnpm run sqlite:init
+docker compose -f database/docker-compose.yml up -d
+bash database/scripts/apply-migrations.sh
 pnpm run login
-pnpm run doctor:sqlite
+pnpm run doctor:postgres
 ```
 
 После `pnpm run login` откроется браузер. Войди в WB Partners вручную, дождись загрузки кабинета, вернись в терминал и нажми `Enter`.
 
-Сессия сохранится в:
+Сессия сохраняется в:
 
 ```text
 .auth/wb.json
@@ -45,260 +157,110 @@ pnpm run doctor:sqlite
 
 Этот файл не должен попадать в git.
 
-## Настройка ниши
-
-Перед запуском проверь `config/scenario.json`:
-
-```json
-{
-  "period": "Месяц",
-  "topBy": "По выручке",
-  "fallbackEnabled": true,
-  "niches": [
-    {
-      "category": "Бытовая техника",
-      "subject": "Фены",
-      "nicheReportUrl": "https://seller.wildberries.ru/platform-analytics/niche-analysis/item?id=642"
-    }
-  ]
-}
-```
-
-Поля:
-
-- `category` - категория в WB Partners.
-- `subject` - предмет ниши.
-- `nicheReportUrl` - прямой URL отчета ниши.
-- `period` - период отчета, сейчас используется `Месяц`.
-- `topBy` - способ отбора карточек в `compare-cards`.
-- `fallbackEnabled` - если прямой URL не открылся, автоматизация попробует найти нишу через UI.
-
-Если меняешь `nicheReportUrl`, проверь, что `category` и `subject` соответствуют этой же нише.
-
-## Проверка готовности
-
-Перед запуском можно проверить компьютер:
-
-```bash
-pnpm run doctor:sqlite
-```
-
-Команда проверяет:
-
-- проект запущен из правильной папки;
-- зависимости установлены;
-- Playwright Chromium доступен;
-- `.auth/wb.json` существует и читается;
-- SQLite инициализирован;
-- нужные таблицы есть.
-
-Если все хорошо:
-
-```text
-Ready: yes
-```
-
-Если что-то не настроено, doctor покажет команду для исправления.
-
-## Полный локальный прогон
-
-Запускай сценарии последовательно. Не нужно открывать три автоматизации параллельно: каждая команда должна завершиться перед следующей.
-
-Во время работы Playwright лучше не кликать в браузере руками, чтобы не сбить действия автоматизации.
-
-### 1. Проверить окружение
-
-```bash
-pnpm run doctor:sqlite
-```
-
-Если в конце `Ready: yes`, можно запускать сбор данных.
-
-### 2. Собрать данные
-
-Сначала собери метрики ниши:
-
-```bash
-HEADLESS=false pnpm run niche-report:sqlite
-```
-
-Потом собери поисковые запросы:
-
-```bash
-HEADLESS=false pnpm run niche-query-stats:sqlite
-```
-
-После этого собери карточки для сравнения:
-
-```bash
-HEADLESS=false pnpm run compare-cards:sqlite
-```
-
-### 3. Посмотреть результат из SQLite
-
-```bash
-pnpm run sqlite:report
-```
-
-Команда покажет, что данные действительно сохранены локально: последние запуски, нишу, метрики, поисковые запросы и карточки.
-
-## Отдельные команды
-
-### Авторизация
-
-```bash
-pnpm run login
-```
-
-Открывает WB Partners и сохраняет авторизованную сессию в `.auth/wb.json`.
-
-### Метрики ниши
-
-```bash
-HEADLESS=false pnpm run niche-report:sqlite
-```
-
-Сохраняет:
-
-```text
-wb_niche_snapshots
-wb_niche_metrics
-automation_runs
-automation_step_logs
-```
-
-### Поисковые запросы
-
-```bash
-HEADLESS=false pnpm run niche-query-stats:sqlite
-```
-
-Сохраняет:
-
-```text
-wb_niche_search_queries
-automation_runs
-automation_step_logs
-```
-
-### Сравнение карточек
-
-```bash
-HEADLESS=false pnpm run compare-cards:sqlite
-```
-
-Открывает `Сравнение карточек`, выбирает рекомендации по предмету, собирает 50 `nm_id`, сохраняет их и добавляет первые 5 карточек вручную.
-
-Сохраняет:
-
-```text
-wb_compare_card_recommendations
-automation_runs
-automation_step_logs
-```
-
-### Готовые сравнения карточек
+## Запуск сбора готового сравнения
 
 ```bash
 HEADLESS=false pnpm run existing-compare-reports
 ```
 
-Открывает `Сравнение карточек`, без скролла парсит первый видимый блок готового сравнения с 5 SKU, сохраняет результат в PostgreSQL, одним кликом входит в этот отчет, выбирает `Квартал` и сохраняет дневные значения из captured WB `salesFunnel.byDay`: `Показы`, `Переходы в карточку`, `CTR`, `Добавления в корзину`, `Конверсия в корзину`, `Заказы`, `Заказали на сумму`, `Конверсия в заказ`, `Выкупы`, `Выкупили на сумму`, `Процент выкупа`, `Отмены`, `Медианная цена покупателя`, `Отменили на сумму`, `Средняя позиция`.
-
-SQLite-режима для этой команды нет.
-
-Сохраняет:
+Успешный запуск выглядит так:
 
 ```text
-wb_analytics.compare_card_reports
-wb_analytics.compare_card_report_items
-wb_analytics.compare_card_report_chart_daily
-automation.runs
-automation.step_logs
+[existing-compare-reports] saved 1 report rows 5 card rows 6750 chart daily rows opened comparison report run_id=... report_id=...
 ```
 
-В дневных точках `source = api_sales_funnel` означает, что значение взято из JSON-ответа, который уже загрузила сама страница WB. `value_state = actual` — ненулевое значение, `zero` — реальный ноль от WB, `missing` — значения нет.
+## Таблицы
 
-## Посмотреть собранные данные
+Основные таблицы нового workflow:
 
-Технические счетчики таблиц:
+| Таблица | Назначение |
+|---|---|
+| `automation.runs` | Один запуск сценария |
+| `automation.step_logs` | Логи шагов Playwright-сценария |
+| `wb_analytics.compare_card_reports` | Готовый блок сравнения: дата, срок доступности, raw payload |
+| `wb_analytics.compare_card_report_items` | 5 SKU из выбранного сравнения |
+| `wb_analytics.compare_card_report_chart_daily` | Дневные значения графика по SKU, метрикам и датам |
 
-```bash
-pnpm run sqlite:inspect
+В `compare_card_report_chart_daily` важные поля:
+
+| Поле | Значение |
+|---|---|
+| `metric_name` | Название метрики из интерфейса WB |
+| `nm_id` | SKU |
+| `metric_date` | День |
+| `value_numeric` | Нормализованное числовое значение или `NULL` |
+| `value_state` | `actual`, `zero`, `missing`, `missing_rendered_as_zero` |
+| `unit` | `шт`, `%`, `₽` или пусто |
+| `source` | `api_sales_funnel` для captured API-ответа |
+| `raw_payload` | Исходная строка API, поле API и request metadata |
+
+## Проверка качества данных
+
+Проверить последний собранный отчет:
+
+```sql
+WITH latest AS (
+  SELECT report_id
+  FROM wb_analytics.compare_card_reports
+  ORDER BY created_at DESC
+  LIMIT 1
+)
+SELECT
+  metric_name,
+  unit,
+  COUNT(*) AS rows,
+  COUNT(*) FILTER (WHERE value_numeric IS NULL) AS null_rows,
+  COUNT(*) FILTER (WHERE source = 'api_sales_funnel') AS api_rows,
+  MIN(metric_date) AS min_date,
+  MAX(metric_date) AS max_date
+FROM wb_analytics.compare_card_report_chart_daily
+WHERE report_id = (SELECT report_id FROM latest)
+GROUP BY metric_name, unit
+ORDER BY metric_name;
 ```
 
-Демонстрационный отчет из SQLite:
+Проверить, что `Показы` не сохранились дробными:
 
-```bash
-pnpm run sqlite:report
+```sql
+WITH latest AS (
+  SELECT report_id
+  FROM wb_analytics.compare_card_reports
+  ORDER BY created_at DESC
+  LIMIT 1
+)
+SELECT
+  COUNT(*) AS shows_rows,
+  COUNT(*) FILTER (WHERE value_numeric <> trunc(value_numeric)) AS fractional_shows
+FROM wb_analytics.compare_card_report_chart_daily
+WHERE report_id = (SELECT report_id FROM latest)
+  AND metric_name = 'Показы';
 ```
 
-Он показывает:
+Проверить совпадение нормализованных значений с raw API:
 
-- последние запуски;
-- последнюю собранную нишу;
-- ключевые метрики;
-- топ поисковых запросов;
-- карточки из `compare-cards`.
-
-Пример:
-
-```text
-SQLite report
-sqlite/data/wb_niche_analysis.sqlite
-
-Runs
-- compare_cards: success
-- niche_query_stats: success
-- niche_report: success
-
-Latest niche
-Бытовая техника / Фены
-
-Metrics
-- Сезонность: Умеренно выраженная сезонность
-- Выручка: ...
-
-Top search queries
-1. Фен для волос - ...
-
-Compare cards
-1. 806275880
-```
-
-## SQLite
-
-SQLite-файл по умолчанию:
-
-```text
-sqlite/data/wb_niche_analysis.sqlite
-```
-
-Инициализировать БД:
-
-```bash
-pnpm run sqlite:init
-```
-
-Очистить данные, но оставить схему:
-
-```bash
-pnpm run sqlite:reset
-```
-
-Проверить содержимое:
-
-```bash
-pnpm run sqlite:inspect
-pnpm run sqlite:report
-```
-
-Файлы SQLite не коммитятся:
-
-```text
-sqlite/data/*.sqlite
-sqlite/data/*.sqlite-wal
-sqlite/data/*.sqlite-shm
+```sql
+WITH latest AS (
+  SELECT report_id
+  FROM wb_analytics.compare_card_reports
+  ORDER BY created_at DESC
+  LIMIT 1
+),
+base AS (
+  SELECT
+    metric_name,
+    value_numeric,
+    raw_payload->'apiRow'->>(raw_payload->>'apiField') AS raw_value
+  FROM wb_analytics.compare_card_report_chart_daily
+  WHERE report_id = (SELECT report_id FROM latest)
+    AND value_numeric IS NOT NULL
+)
+SELECT
+  metric_name,
+  COUNT(*) AS rows,
+  COUNT(*) FILTER (WHERE value_numeric <> raw_value::numeric) AS numeric_mismatch
+FROM base
+GROUP BY metric_name
+ORDER BY metric_name;
 ```
 
 ## Полезные команды
@@ -307,25 +269,26 @@ sqlite/data/*.sqlite-shm
 pnpm run typecheck
 pnpm run playwright:install
 pnpm run login
-pnpm run doctor:sqlite
-pnpm run sqlite:report
+pnpm run doctor:postgres
+HEADLESS=false pnpm run existing-compare-reports
+bash database/scripts/connect.sh
 ```
 
 ## Структура проекта
 
 ```text
 config/      настройки ниши и runtime
-sqlite/      локальная SQLite-БД, схема, scripts, read-only report
+database/    PostgreSQL docker-compose, миграции, SQL-скрипты
 src/cli/     CLI-точки входа
 src/flows/   Playwright-сценарии
 src/steps/   отдельные шаги и парсеры
-src/core/    storage, browser, config, doctor-check
+src/core/    browser, config, storage, doctor-check
 docs/        подробная документация
 ```
 
 Дополнительная документация:
 
-- `sqlite/README.md` - локальный SQLite-режим;
+- `database/README.md` - локальная PostgreSQL-БД;
 - `docs/cli_ручной_запуск.md` - ручной запуск через CLI;
 - `docs/архитектура_автоматизации.md` - структура автоматизации;
 - `docs/playwright_гранулярность.md` - пошаговая гранулярность сценариев;
