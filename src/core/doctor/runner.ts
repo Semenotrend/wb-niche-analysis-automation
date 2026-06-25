@@ -1,4 +1,3 @@
-import { getStorageDriver } from "../storage.js";
 import { PROJECT_ROOT } from "./paths.js";
 import type { DoctorCheck, DoctorCheckResult } from "./types.js";
 import { runAuthChecks } from "./checks/authChecks.js";
@@ -22,8 +21,7 @@ export async function runDoctorChecks(): Promise<{
   results: DoctorCheckResult[];
 }> {
   const context = {
-    projectRoot: PROJECT_ROOT,
-    storageDriver: getStorageDriver()
+    projectRoot: PROJECT_ROOT
   };
   const results: DoctorCheckResult[] = [];
 
@@ -32,7 +30,7 @@ export async function runDoctorChecks(): Promise<{
   }
 
   return {
-    storageDriver: context.storageDriver,
+    storageDriver: "postgres",
     results
   };
 }

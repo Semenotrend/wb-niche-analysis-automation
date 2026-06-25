@@ -1,5 +1,3 @@
-import type { StorageDriver } from "../storage.js";
-
 export type DoctorStatus = "ok" | "warn" | "fail";
 
 export type DoctorCheckResult = {
@@ -12,7 +10,6 @@ export type DoctorCheckResult = {
 
 export type DoctorContext = {
   projectRoot: string;
-  storageDriver: StorageDriver;
 };
 
 export type DoctorCheck = (

@@ -125,7 +125,7 @@ bash database/scripts/apply-migrations.sh
 Проверить БД:
 
 ```bash
-pnpm run doctor:postgres
+pnpm run doctor
 ```
 
 Подключиться к БД:
@@ -144,7 +144,7 @@ pnpm run playwright:install
 docker compose -f database/docker-compose.yml up -d
 bash database/scripts/apply-migrations.sh
 pnpm run login
-pnpm run doctor:postgres
+pnpm run doctor
 ```
 
 После `pnpm run login` откроется браузер. Войди в WB Partners вручную, дождись загрузки кабинета, вернись в терминал и нажми `Enter`.
@@ -177,6 +177,8 @@ HEADLESS=false pnpm run existing-compare-reports
 |---|---|
 | `automation.runs` | Один запуск сценария |
 | `automation.step_logs` | Логи шагов Playwright-сценария |
+| `wb_analytics.compare_card_recommendations` | 50 найденных карточек и флаги `used_for_comparison` после submit |
+| `wb_analytics.compare_card_comparison_requests` | Пачки по 5 карточек, отправленные в создание сравнения |
 | `wb_analytics.compare_card_reports` | Готовый блок сравнения: дата, срок доступности, raw payload |
 | `wb_analytics.compare_card_report_items` | 5 SKU из выбранного сравнения |
 | `wb_analytics.compare_card_report_chart_daily` | Дневные значения графика по SKU, метрикам и датам |
@@ -269,7 +271,7 @@ ORDER BY metric_name;
 pnpm run typecheck
 pnpm run playwright:install
 pnpm run login
-pnpm run doctor:postgres
+pnpm run doctor
 HEADLESS=false pnpm run existing-compare-reports
 bash database/scripts/connect.sh
 ```

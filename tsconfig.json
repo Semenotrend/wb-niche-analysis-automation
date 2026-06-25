@@ -9,5 +9,5 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["src/**/*.ts", "sqlite/**/*.ts", "playwright.config.ts"]
+  "include": ["src/**/*.ts", "playwright.config.ts"]
 }

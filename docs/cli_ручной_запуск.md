@@ -91,20 +91,25 @@ HEADLESS=false pnpm run compare-cards
 5. выбирает топ карточек по `topBy`;
 6. собирает 50 уникальных ID карточек;
 7. сохраняет эти ID в `wb_analytics.compare_card_recommendations`;
-8. берет первые 5 ID из БД и добавляет их через ручной ввод.
+8. берет первые 5 неиспользованных ID из БД и добавляет их через ручной ввод;
+9. нажимает верхнюю кнопку `Сравнить карточки`;
+10. помечает эти 5 ID как использованные для созданного сравнения.
 
 Успешный лог выглядит так:
 
 ```text
-[1/8] openCompareCardsPage success
-[2/8] startCompareCards success
-[3/8] selectRecommendationsBySubject success
-[4/8] searchAndSelectCompareSubject success
-[5/8] selectTopByRevenue success
-[6/8] parseCompareCardIds success
-[7/8] saveCompareCardIdsToDb success
-[8/8] addManualCompareCards success
+[1/10] openCompareCardsPage success
+[2/10] startCompareCards success
+[3/10] selectRecommendationsBySubject success
+[4/10] searchAndSelectCompareSubject success
+[5/10] selectTopByRevenue success
+[6/10] parseCompareCardIds success
+[7/10] saveCompareCardIdsToDb success
+[8/10] addManualCompareCards success
+[9/10] submitCompareCards success
+[10/10] markCompareCardsUsedForComparison success
 [compare-cards] saved 50 unique card IDs to DB run_id=...
+[compare-cards] submitted 5 cards comparison_request_id=...
 ```
 
 ## 3. Готовые сравнения карточек
@@ -185,7 +190,7 @@ PGPASSWORD=${PGPASSWORD:-wb_niche_local} psql \
   --username "${PGUSER:-wb_niche}" \
   --dbname "${PGDATABASE:-wb_niche_analysis}" \
   -P pager=off \
-  -c "select count(*) as saved_rows, count(distinct nm_id) as distinct_nm_ids, count(*) - count(distinct nm_id) as duplicate_count from wb_analytics.compare_card_recommendations where run_id = '<RUN_ID>';"
+  -c "select count(*) as saved_rows, count(distinct nm_id) as distinct_nm_ids, count(*) - count(distinct nm_id) as duplicate_count, count(*) filter (where used_for_comparison) as used_rows from wb_analytics.compare_card_recommendations where run_id = '<RUN_ID>';"
 ```
 
 Ожидаемый результат для `compare-cards`:
@@ -194,6 +199,7 @@ PGPASSWORD=${PGPASSWORD:-wb_niche_local} psql \
 saved_rows = 50
 distinct_nm_ids = 50
 duplicate_count = 0
+used_rows = 5
 ```
 
 Проверка готовых сравнений:

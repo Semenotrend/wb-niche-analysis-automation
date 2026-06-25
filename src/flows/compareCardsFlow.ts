@@ -8,19 +8,26 @@ import { searchAndSelectCompareSubject } from "../steps/searchAndSelectCompareSu
 import { selectRecommendationsBySubject } from "../steps/selectRecommendationsBySubject.js";
 import { selectTopByRevenue } from "../steps/selectTopByRevenue.js";
 import {
+  markCompareCardsUsedForComparison,
   saveCompareCardIdsToDb,
   type SaveCompareCardIdsResult
 } from "../steps/saveCompareCardIdsToDb.js";
 import { startCompareCards } from "../steps/startCompareCards.js";
+import { submitCompareCards } from "../steps/submitCompareCards.js";
 
-export const IMPLEMENTED_COMPARE_CARDS_STEPS = 8;
+export const IMPLEMENTED_COMPARE_CARDS_STEPS = 10;
+
+export type CompareCardsFlowResult = SaveCompareCardIdsResult & {
+  comparisonRequestId: string;
+  markedForComparisonCount: number;
+};
 
 export async function runCompareCardsFlow(options: {
   page: Page;
   scenario: ScenarioConfig;
   runtime: RuntimeConfig;
   stepRunner: StepRunner;
-}): Promise<SaveCompareCardIdsResult> {
+}): Promise<CompareCardsFlowResult> {
   const { page, scenario, runtime, stepRunner } = options;
 
   await stepRunner.runStep("openCompareCardsPage", () =>
@@ -50,9 +57,27 @@ export async function runCompareCardsFlow(options: {
     })
   );
 
-  await stepRunner.runStep("addManualCompareCards", () =>
+  const addedNmIds = await stepRunner.runStep("addManualCompareCards", () =>
     addManualCompareCards(page, result.runId)
   );
 
-  return result;
+  await stepRunner.runStep("submitCompareCards", () =>
+    submitCompareCards(page, addedNmIds.length)
+  );
+
+  const comparisonRequest = await stepRunner.runStep(
+    "markCompareCardsUsedForComparison",
+    () =>
+      markCompareCardsUsedForComparison({
+        runId: result.runId,
+        nmIds: addedNmIds,
+        sourceUrl: page.url()
+      })
+  );
+
+  return {
+    ...result,
+    comparisonRequestId: comparisonRequest.comparisonRequestId,
+    markedForComparisonCount: comparisonRequest.markedCount
+  };
 }

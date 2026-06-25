@@ -4,7 +4,6 @@ import type { ParsedCompareCardId } from "../steps/parseCompareCardIds.js";
 import type { ParsedNicheQueryStats } from "../steps/parseNicheQueryStats.js";
 import type { ParsedNicheReport } from "../steps/parseNicheReport.js";
 import { createPostgresStorage } from "./postgresStorage.js";
-import { createSqliteStorage } from "../../sqlite/src/storage.js";
 
 export type SaveNicheReportOptions = {
   scenario: ScenarioConfig;
@@ -43,6 +42,17 @@ export type SaveCompareCardIdsResult = {
   savedCount: number;
 };
 
+export type MarkCompareCardsUsedForComparisonOptions = {
+  runId: string;
+  nmIds: string[];
+  sourceUrl: string;
+};
+
+export type MarkCompareCardsUsedForComparisonResult = {
+  comparisonRequestId: string;
+  markedCount: number;
+};
+
 export type SaveStepLogsOptions = {
   runId: string;
   stepLogs: StepExecutionLog[];
@@ -60,18 +70,11 @@ export type AutomationStorage = {
   ): Promise<SaveCompareCardIdsResult>;
   saveCompareCardStepLogs(options: SaveStepLogsOptions): Promise<void>;
   loadManualCompareCardIds(runId: string, limit: number): Promise<string[]>;
+  markCompareCardsUsedForComparison(
+    options: MarkCompareCardsUsedForComparisonOptions
+  ): Promise<MarkCompareCardsUsedForComparisonResult>;
 };
 
-export type StorageDriver = "postgres" | "sqlite";
-
-export function getStorageDriver(): StorageDriver {
-  return process.env.STORAGE_DRIVER === "sqlite" ? "sqlite" : "postgres";
-}
-
 export function getAutomationStorage(): AutomationStorage {
-  if (getStorageDriver() === "sqlite") {
-    return createSqliteStorage();
-  }
-
   return createPostgresStorage();
 }

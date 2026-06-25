@@ -77,7 +77,6 @@ export async function runPackageChecks(
 
   results.push(
     await checkImport("playwright"),
-    await checkImport("better-sqlite3"),
     await checkImport("pg")
   );
 

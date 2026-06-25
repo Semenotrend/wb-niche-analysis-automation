@@ -52,6 +52,9 @@ async function main(): Promise<void> {
       console.log(
         `[compare-cards] saved ${result.savedCount} unique card IDs to DB run_id=${result.runId}`
       );
+      console.log(
+        `[compare-cards] submitted ${result.markedForComparisonCount} cards comparison_request_id=${result.comparisonRequestId}`
+      );
     }
   } finally {
     await browser.close();

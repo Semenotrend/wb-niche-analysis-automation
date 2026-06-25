@@ -2,6 +2,8 @@ import { withDbClient, type DbClient } from "./db.js";
 import type { StepExecutionLog } from "./stepRunner.js";
 import type {
   AutomationStorage,
+  MarkCompareCardsUsedForComparisonOptions,
+  MarkCompareCardsUsedForComparisonResult,
   SaveCompareCardIdsOptions,
   SaveCompareCardIdsResult,
   SaveNicheQueryStatsOptions,
@@ -376,6 +378,7 @@ async function loadManualCompareCardIds(
         SELECT nm_id::text AS nm_id
         FROM wb_analytics.compare_card_recommendations
         WHERE run_id = $1
+          AND used_for_comparison = false
         ORDER BY rank_position
         LIMIT $2
       `,
@@ -383,6 +386,81 @@ async function loadManualCompareCardIds(
     );
 
     return result.rows.map((row) => row.nm_id);
+  });
+}
+
+async function markCompareCardsUsedForComparison(
+  options: MarkCompareCardsUsedForComparisonOptions
+): Promise<MarkCompareCardsUsedForComparisonResult> {
+  const uniqueNmIds = new Set(options.nmIds);
+
+  if (options.nmIds.length === 0) {
+    throw new Error("empty_result: no compare card IDs to mark as used");
+  }
+
+  if (uniqueNmIds.size !== options.nmIds.length) {
+    throw new Error("schema_changed: duplicate compare card IDs to mark as used");
+  }
+
+  return withDbClient(async (client) => {
+    await client.query("BEGIN");
+
+    try {
+      const requestResult = await client.query<{ request_id: string }>(
+        `
+          INSERT INTO wb_analytics.compare_card_comparison_requests (
+            run_id,
+            status,
+            selected_count,
+            source_url,
+            submitted_at,
+            raw_payload
+          )
+          VALUES ($1, 'submitted', $2, $3, now(), $4::jsonb)
+          RETURNING request_id
+        `,
+        [
+          options.runId,
+          options.nmIds.length,
+          options.sourceUrl,
+          JSON.stringify({ nmIds: options.nmIds })
+        ]
+      );
+      const comparisonRequestId = requestResult.rows[0].request_id;
+
+      for (const [index, nmId] of options.nmIds.entries()) {
+        const updateResult = await client.query(
+          `
+            UPDATE wb_analytics.compare_card_recommendations
+            SET
+              used_for_comparison = true,
+              comparison_request_id = $2,
+              comparison_slot = $3,
+              used_at = now()
+            WHERE run_id = $1
+              AND nm_id = $4
+              AND used_for_comparison = false
+          `,
+          [options.runId, comparisonRequestId, index + 1, nmId]
+        );
+
+        if ((updateResult.rowCount ?? 0) !== 1) {
+          throw new Error(
+            `empty_result: expected one unused compare card ID "${nmId}" to mark`
+          );
+        }
+      }
+
+      await client.query("COMMIT");
+
+      return {
+        comparisonRequestId,
+        markedCount: options.nmIds.length
+      };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    }
   });
 }
 
@@ -397,6 +475,7 @@ export function createPostgresStorage(): AutomationStorage {
     saveCompareCardIds,
     saveCompareCardStepLogs: (options) =>
       updateRunDurationAndStepLogs(options, "compareCardsFlow"),
-    loadManualCompareCardIds
+    loadManualCompareCardIds,
+    markCompareCardsUsedForComparison
   };
 }

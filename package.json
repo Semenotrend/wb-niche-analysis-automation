@@ -9,15 +9,6 @@
     "niche-report": "tsx src/cli/run-niche-report.ts",
     "niche-query-stats": "tsx src/cli/run-niche-query-stats.ts",
     "doctor": "tsx src/cli/doctor.ts",
-    "doctor:sqlite": "STORAGE_DRIVER=sqlite tsx src/cli/doctor.ts",
-    "doctor:postgres": "STORAGE_DRIVER=postgres tsx src/cli/doctor.ts",
-    "sqlite:init": "tsx sqlite/scripts/init.ts",
-    "sqlite:reset": "tsx sqlite/scripts/reset-data.ts",
-    "sqlite:inspect": "tsx sqlite/scripts/inspect.ts",
-    "sqlite:report": "tsx sqlite/scripts/report.ts",
-    "niche-report:sqlite": "STORAGE_DRIVER=sqlite tsx src/cli/run-niche-report.ts",
-    "niche-query-stats:sqlite": "STORAGE_DRIVER=sqlite tsx src/cli/run-niche-query-stats.ts",
-    "compare-cards:sqlite": "STORAGE_DRIVER=sqlite tsx src/cli/run-compare-cards.ts",
     "playwright:install": "playwright install chromium",
     "typecheck": "tsc --noEmit"
   },
@@ -33,7 +24,6 @@
   },
   "type": "module",
   "devDependencies": {
-    "@types/better-sqlite3": "^7.6.13",
     "@types/node": "^26.0.0",
     "@types/pg": "^8.20.0",
     "playwright": "^1.61.0",
@@ -41,7 +31,6 @@
     "typescript": "^6.0.3"
   },
   "dependencies": {
-    "better-sqlite3": "^12.11.1",
     "pg": "^8.22.0"
   }
 }

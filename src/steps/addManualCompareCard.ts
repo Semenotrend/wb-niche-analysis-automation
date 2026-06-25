@@ -61,7 +61,7 @@ export async function addManualCompareCards(
   page: Page,
   runId: string,
   limit: number = MANUAL_COMPARE_CARD_LIMIT
-): Promise<void> {
+): Promise<string[]> {
   const nmIds = await loadManualCompareCardIds(runId, limit);
   const addedNmIds = new Set<string>();
 
@@ -88,4 +88,6 @@ export async function addManualCompareCards(
     await addOneManualCompareCard(page, nmId);
     addedNmIds.add(nmId);
   }
+
+  return nmIds;
 }

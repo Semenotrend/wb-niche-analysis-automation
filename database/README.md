@@ -68,7 +68,8 @@ wb_analytics
 | `wb_analytics.niche_metrics` | Метрики ниши в long-format |
 | `wb_analytics.niche_search_queries` | Поисковые запросы из блока `Поисковые запросы` |
 | `wb_analytics.niche_dynamics_daily` | Дневная динамика графиков, если получим ее из DOM/API |
-| `wb_analytics.compare_card_recommendations` | 50 уникальных ID карточек из рекомендаций `Сравнение карточек` |
+| `wb_analytics.compare_card_recommendations` | 50 уникальных ID карточек из рекомендаций `Сравнение карточек` и флаги использования в submit |
+| `wb_analytics.compare_card_comparison_requests` | Пачки по 5 карточек, отправленные кнопкой `Сравнить карточки` |
 | `wb_analytics.compare_card_reports` | Список уже готовых сравнений карточек с датой, сроком доступности и raw payload |
 | `wb_analytics.compare_card_report_items` | 5 SKU из видимого готового сравнения |
 | `wb_analytics.compare_card_report_chart_daily` | Дневные точки графика открытого готового сравнения карточек |
@@ -172,6 +173,9 @@ Playwright flow
   -> automation.step_logs
   -> wb_analytics.compare_card_recommendations
   -> addManualCompareCards
+  -> submitCompareCards
+  -> wb_analytics.compare_card_comparison_requests
+  -> used_for_comparison flags
 ```
 
 В `wb_analytics.compare_card_recommendations` дубли внутри одного запуска запрещены:
@@ -179,6 +183,15 @@ Playwright flow
 ```text
 UNIQUE (run_id, nm_id)
 UNIQUE (run_id, rank_position)
+```
+
+После успешного submit ровно 5 строк получают:
+
+```text
+used_for_comparison = true
+comparison_request_id = <request_id>
+comparison_slot = 1..5
+used_at = <timestamp>
 ```
 
 Для сценария `existing-compare-reports`:

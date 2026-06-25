@@ -1,16 +1,4 @@
-import { access } from "node:fs/promises";
-import { join, resolve } from "node:path";
-import type { DoctorCheckResult, DoctorContext } from "../types.js";
-
-const SQLITE_TABLES = [
-  "automation_runs",
-  "automation_step_logs",
-  "wb_niche_snapshots",
-  "wb_niche_metrics",
-  "wb_niche_search_queries",
-  "wb_niche_dynamics_daily",
-  "wb_compare_card_recommendations"
-];
+import type { DoctorCheckResult } from "../types.js";
 
 const POSTGRES_TABLES = [
   ["automation", "runs"],
@@ -19,117 +7,12 @@ const POSTGRES_TABLES = [
   ["wb_analytics", "niche_metrics"],
   ["wb_analytics", "niche_search_queries"],
   ["wb_analytics", "niche_dynamics_daily"],
+  ["wb_analytics", "compare_card_comparison_requests"],
   ["wb_analytics", "compare_card_recommendations"]
 ] as const;
 
 const DEFAULT_DATABASE_URL =
   "postgresql://wb_niche:wb_niche_local@127.0.0.1:7777/wb_niche_analysis";
-
-async function exists(path: string): Promise<boolean> {
-  return access(path).then(
-    () => true,
-    () => false
-  );
-}
-
-async function runSqliteStorageChecks(
-  context: DoctorContext
-): Promise<DoctorCheckResult[]> {
-  const databasePath = process.env.SQLITE_DATABASE_PATH
-    ? resolve(process.env.SQLITE_DATABASE_PATH)
-    : join(context.projectRoot, "sqlite", "data", "wb_niche_analysis.sqlite");
-  const results: DoctorCheckResult[] = [];
-
-  if (!await exists(databasePath)) {
-    return [
-      {
-        id: "storage.sqlite.file",
-        label: "SQLite database file",
-        status: "fail",
-        details: `${databasePath} does not exist.`,
-        fixCommand: "pnpm run sqlite:init"
-      }
-    ];
-  }
-
-  results.push({
-    id: "storage.sqlite.file",
-    label: "SQLite database file",
-    status: "ok",
-    details: databasePath
-  });
-
-  try {
-    const sqliteModule = await import("better-sqlite3");
-    const Database = sqliteModule.default;
-    const db = new Database(databasePath, {
-      readonly: true,
-      fileMustExist: true
-    });
-
-    try {
-      const meta = db
-        .prepare("SELECT value FROM app_metadata WHERE key = 'schema_version'")
-        .get() as { value: string } | undefined;
-
-      if (meta?.value === "1") {
-        results.push({
-          id: "storage.sqlite.schema",
-          label: "SQLite schema version 1",
-          status: "ok"
-        });
-      } else {
-        results.push({
-          id: "storage.sqlite.schema",
-          label: "SQLite schema version 1",
-          status: "fail",
-          details: `Expected schema_version=1, got ${meta?.value ?? "missing"}.`,
-          fixCommand: "pnpm run sqlite:init"
-        });
-      }
-
-      const existingTables = new Set(
-        (
-          db
-            .prepare(
-              `
-                SELECT name
-                FROM sqlite_master
-                WHERE type = 'table'
-              `
-            )
-            .all() as Array<{ name: string }>
-        ).map((row) => row.name)
-      );
-      const missingTables = SQLITE_TABLES.filter(
-        (tableName) => !existingTables.has(tableName)
-      );
-
-      results.push({
-        id: "storage.sqlite.tables",
-        label: "SQLite tables",
-        status: missingTables.length === 0 ? "ok" : "fail",
-        details:
-          missingTables.length === 0
-            ? `${SQLITE_TABLES.length} required tables found.`
-            : `Missing tables: ${missingTables.join(", ")}.`,
-        fixCommand: missingTables.length === 0 ? undefined : "pnpm run sqlite:init"
-      });
-    } finally {
-      db.close();
-    }
-  } catch (error) {
-    results.push({
-      id: "storage.sqlite.open",
-      label: "SQLite open/read",
-      status: "fail",
-      details: error instanceof Error ? error.message : String(error),
-      fixCommand: "pnpm run sqlite:init"
-    });
-  }
-
-  return results;
-}
 
 async function runPostgresStorageChecks(): Promise<DoctorCheckResult[]> {
   const databaseUrl = process.env.DATABASE_URL ?? DEFAULT_DATABASE_URL;
@@ -212,12 +95,6 @@ async function runPostgresStorageChecks(): Promise<DoctorCheckResult[]> {
   return results;
 }
 
-export async function runStorageChecks(
-  context: DoctorContext
-): Promise<DoctorCheckResult[]> {
-  if (context.storageDriver === "sqlite") {
-    return runSqliteStorageChecks(context);
-  }
-
+export async function runStorageChecks(): Promise<DoctorCheckResult[]> {
   return runPostgresStorageChecks();
 }
