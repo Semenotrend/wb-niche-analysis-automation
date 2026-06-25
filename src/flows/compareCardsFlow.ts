@@ -3,23 +3,37 @@ import type { RuntimeConfig, ScenarioConfig } from "../core/config.js";
 import type { StepRunner } from "../core/stepRunner.js";
 import { addManualCompareCards } from "../steps/addManualCompareCard.js";
 import { openCompareCardsPage } from "../steps/openCompareCardsPage.js";
+import {
+  attachComparisonApiCapture,
+  parseOpenedComparisonChartDailyFromApi
+} from "../steps/parseComparisonChartDaily.js";
 import { parseCompareCardIds } from "../steps/parseCompareCardIds.js";
+import { parseOpenedComparisonReport } from "../steps/parseOpenedComparisonReport.js";
 import { searchAndSelectCompareSubject } from "../steps/searchAndSelectCompareSubject.js";
+import { selectComparisonQuarterPeriod } from "../steps/selectComparisonQuarterPeriod.js";
 import { selectRecommendationsBySubject } from "../steps/selectRecommendationsBySubject.js";
 import { selectTopByRevenue } from "../steps/selectTopByRevenue.js";
 import {
-  markCompareCardsUsedForComparison,
+  saveComparisonChartDailyToDb,
+  saveSubmittedComparisonReportToDb
+} from "../steps/saveExistingCompareReportToDb.js";
+import {
+  markCompareCardsComparisonSubmitted,
+  reserveCompareCardsForComparison,
   saveCompareCardIdsToDb,
   type SaveCompareCardIdsResult
 } from "../steps/saveCompareCardIdsToDb.js";
 import { startCompareCards } from "../steps/startCompareCards.js";
 import { submitCompareCards } from "../steps/submitCompareCards.js";
 
-export const IMPLEMENTED_COMPARE_CARDS_STEPS = 10;
+export const IMPLEMENTED_COMPARE_CARDS_STEPS = 17;
 
 export type CompareCardsFlowResult = SaveCompareCardIdsResult & {
   comparisonRequestId: string;
   markedForComparisonCount: number;
+  reportId: string;
+  savedReportItems: number;
+  savedChartPoints: number;
 };
 
 export async function runCompareCardsFlow(options: {
@@ -61,23 +75,75 @@ export async function runCompareCardsFlow(options: {
     addManualCompareCards(page, result.runId)
   );
 
-  await stepRunner.runStep("submitCompareCards", () =>
-    submitCompareCards(page, addedNmIds.length)
-  );
-
   const comparisonRequest = await stepRunner.runStep(
-    "markCompareCardsUsedForComparison",
+    "reserveCompareCardsForComparison",
     () =>
-      markCompareCardsUsedForComparison({
+      reserveCompareCardsForComparison({
         runId: result.runId,
         nmIds: addedNmIds,
         sourceUrl: page.url()
       })
   );
 
+  await stepRunner.runStep("attachComparisonApiCapture", async () => {
+    attachComparisonApiCapture(page);
+  });
+
+  await stepRunner.runStep("submitCompareCards", () =>
+    submitCompareCards(page, addedNmIds.length)
+  );
+
+  await stepRunner.runStep(
+    "markCompareCardsComparisonSubmitted",
+    () =>
+      markCompareCardsComparisonSubmitted({
+        comparisonRequestId: comparisonRequest.comparisonRequestId,
+        sourceUrl: page.url()
+      })
+  );
+
+  const openedReport = await stepRunner.runStep("parseOpenedComparisonReport", () =>
+    parseOpenedComparisonReport(page, {
+      comparisonRequestId: comparisonRequest.comparisonRequestId,
+      nmIds: addedNmIds
+    })
+  );
+
+  const reportSaveResult = await stepRunner.runStep(
+    "saveSubmittedComparisonReportToDb",
+    () =>
+      saveSubmittedComparisonReportToDb({
+        runId: result.runId,
+        comparisonRequestId: comparisonRequest.comparisonRequestId,
+        report: openedReport,
+        sourceUrl: page.url()
+      })
+  );
+
+  await stepRunner.runStep("selectComparisonQuarterPeriod", () =>
+    selectComparisonQuarterPeriod(page)
+  );
+
+  const chartBatch = await stepRunner.runStep(
+    "parseOpenedComparisonChartDailyFromApi",
+    () => parseOpenedComparisonChartDailyFromApi(page, addedNmIds)
+  );
+
+  const chartSaveResult = await stepRunner.runStep(
+    "saveComparisonChartDailyToDb",
+    () =>
+      saveComparisonChartDailyToDb({
+        reportId: reportSaveResult.reportId,
+        chart: chartBatch
+      })
+  );
+
   return {
     ...result,
     comparisonRequestId: comparisonRequest.comparisonRequestId,
-    markedForComparisonCount: comparisonRequest.markedCount
+    markedForComparisonCount: comparisonRequest.markedCount,
+    reportId: reportSaveResult.reportId,
+    savedReportItems: reportSaveResult.savedItems,
+    savedChartPoints: chartSaveResult.savedChartPoints
   };
 }

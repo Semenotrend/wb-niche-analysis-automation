@@ -91,28 +91,90 @@ HEADLESS=false pnpm run compare-cards
 5. выбирает топ карточек по `topBy`;
 6. собирает 50 уникальных ID карточек;
 7. сохраняет эти ID в `wb_analytics.compare_card_recommendations`;
-8. берет первые 5 неиспользованных ID из БД и добавляет их через ручной ввод;
-9. нажимает верхнюю кнопку `Сравнить карточки`;
-10. помечает эти 5 ID как использованные для созданного сравнения.
+8. берет первые 5 ID из БД, которые еще не были зарезервированы/использованы в прошлых запусках, и добавляет их через ручной ввод;
+9. до финального submit резервирует эти 5 ID как использованные для пачки сравнения;
+10. включает перехват WB API-ответов отчета;
+11. нажимает верхнюю кнопку `Сравнить карточки`;
+12. после успешной отправки проставляет `submitted_at` у пачки сравнения;
+13. ждет открытый после submit отчет;
+14. сохраняет этот отчет и 5 SKU в `wb_analytics.compare_card_reports` / `compare_card_report_items`;
+15. нажимает период `Квартал`;
+16. берет captured WB response `salesFunnel.byDay` для открытого отчета;
+17. сохраняет дневные точки графика в `wb_analytics.compare_card_report_chart_daily`.
 
 Успешный лог выглядит так:
 
 ```text
-[1/10] openCompareCardsPage success
-[2/10] startCompareCards success
-[3/10] selectRecommendationsBySubject success
-[4/10] searchAndSelectCompareSubject success
-[5/10] selectTopByRevenue success
-[6/10] parseCompareCardIds success
-[7/10] saveCompareCardIdsToDb success
-[8/10] addManualCompareCards success
-[9/10] submitCompareCards success
-[10/10] markCompareCardsUsedForComparison success
+[1/17] openCompareCardsPage success
+[2/17] startCompareCards success
+[3/17] selectRecommendationsBySubject success
+[4/17] searchAndSelectCompareSubject success
+[5/17] selectTopByRevenue success
+[6/17] parseCompareCardIds success
+[7/17] saveCompareCardIdsToDb success
+[8/17] addManualCompareCards success
+[9/17] reserveCompareCardsForComparison success
+[10/17] attachComparisonApiCapture success
+[11/17] submitCompareCards success
+[12/17] markCompareCardsComparisonSubmitted success
+[13/17] parseOpenedComparisonReport success
+[14/17] saveSubmittedComparisonReportToDb success
+[15/17] selectComparisonQuarterPeriod success
+[16/17] parseOpenedComparisonChartDailyFromApi success
+[17/17] saveComparisonChartDailyToDb success
 [compare-cards] saved 50 unique card IDs to DB run_id=...
 [compare-cards] submitted 5 cards comparison_request_id=...
+[compare-cards] collected submitted report report_id=... 5 card rows 6750 chart daily rows
 ```
 
-## 3. Готовые сравнения карточек
+## 3. Следующая пятерка из сохраненного пула
+
+Команда:
+
+```bash
+HEADLESS=false pnpm run compare-cards-next
+```
+
+Если нужен конкретный пул 50 SKU:
+
+```bash
+SOURCE_RUN_ID=<run_id> HEADLESS=false pnpm run compare-cards-next
+```
+
+Что делает:
+
+1. открывает страницу `Сравнение карточек`;
+2. создает новый `automation.runs` для нового сравнения;
+3. находит source-run с уже сохраненными 50 SKU для текущего `subject/topBy`;
+4. берет следующие 5 SKU, которые глобально еще не использовались;
+5. нажимает `Сравнить карточки` и остается в режиме ручного ввода;
+6. вводит эти 5 SKU через поле `Введите артикул WB`;
+7. до финального submit резервирует эти 5 SKU в строках source-run;
+8. нажимает верхнюю кнопку `Сравнить карточки`;
+9. сохраняет открытый отчет, выбирает `Квартал` и пишет captured `salesFunnel.byDay` в БД.
+
+Успешный лог выглядит так:
+
+```text
+[1/14] openCompareCardsPage success
+[2/14] createCompareCardsNextRun success
+[3/14] loadNextCompareCardIds success
+[4/14] startCompareCards success
+[5/14] addManualCompareCardIds success
+[6/14] reserveCompareCardsForComparison success
+[7/14] attachComparisonApiCapture success
+[8/14] submitCompareCards success
+[9/14] markCompareCardsComparisonSubmitted success
+[10/14] parseOpenedComparisonReport success
+[11/14] saveSubmittedComparisonReportToDb success
+[12/14] selectComparisonQuarterPeriod success
+[13/14] parseOpenedComparisonChartDailyFromApi success
+[14/14] saveComparisonChartDailyToDb success
+[compare-cards-next] selected 5 cards source_run_id=... available_before=... nm_ids=...
+[compare-cards-next] collected submitted report run_id=... report_id=... 5 card rows 6750 chart daily rows
+```
+
+## 4. Готовые сравнения карточек
 
 Команда:
 
@@ -164,8 +226,10 @@ automation.step_logs
 ```bash
 HEADLESS=false pnpm run niche-report
 HEADLESS=false pnpm run compare-cards
-HEADLESS=false pnpm run existing-compare-reports
 ```
+
+`existing-compare-reports` запускай отдельно, когда нужно прочитать уже готовый отчет из истории без создания нового сравнения.
+`compare-cards-next` запускай после `compare-cards`, когда нужно сделать еще одно сравнение из уже сохраненного пула без повторного сбора 50 SKU.
 
 ## Проверка результата в БД
 

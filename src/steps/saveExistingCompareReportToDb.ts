@@ -14,6 +14,13 @@ export type SaveExistingComparisonListOptions = {
   sourceUrl: string;
 };
 
+export type SaveSubmittedComparisonReportOptions = {
+  runId: string;
+  comparisonRequestId: string;
+  report: ParsedExistingComparisonReport;
+  sourceUrl: string;
+};
+
 export type SaveExistingComparisonListResult = {
   runId: string;
   savedReports: number;
@@ -257,6 +264,57 @@ export async function saveExistingComparisonListToDb(
         savedReports: options.reports.length,
         savedItems,
         reportId: selectedReportId
+      };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    }
+  });
+}
+
+export async function saveSubmittedComparisonReportToDb(
+  options: SaveSubmittedComparisonReportOptions
+): Promise<SaveExistingComparisonListResult> {
+  return withDbClient(async (client) => {
+    await client.query("BEGIN");
+
+    try {
+      const reportId = await insertReport(
+        client,
+        options.runId,
+        options.report,
+        options.sourceUrl
+      );
+      let savedItems = 0;
+
+      for (const item of options.report.previewItems.slice(0, 5)) {
+        await savePreviewReportItem(client, reportId, item);
+        savedItems += 1;
+      }
+
+      await client.query(
+        `
+          UPDATE automation.runs
+          SET scenario_config = scenario_config || $2::jsonb
+          WHERE run_id = $1
+        `,
+        [
+          options.runId,
+          JSON.stringify({
+            submittedComparisonReportId: reportId,
+            comparisonRequestId: options.comparisonRequestId,
+            savedReports: 1,
+            savedItems
+          })
+        ]
+      );
+
+      await client.query("COMMIT");
+      return {
+        runId: options.runId,
+        savedReports: 1,
+        savedItems,
+        reportId
       };
     } catch (error) {
       await client.query("ROLLBACK");

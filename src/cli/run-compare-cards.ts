@@ -55,6 +55,13 @@ async function main(): Promise<void> {
       console.log(
         `[compare-cards] submitted ${result.markedForComparisonCount} cards comparison_request_id=${result.comparisonRequestId}`
       );
+      console.log(
+        [
+          `[compare-cards] collected submitted report report_id=${result.reportId}`,
+          `${result.savedReportItems} card rows`,
+          `${result.savedChartPoints} chart daily rows`
+        ].join(" ")
+      );
     }
   } finally {
     await browser.close();

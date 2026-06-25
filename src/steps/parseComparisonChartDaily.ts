@@ -234,6 +234,10 @@ function getNumericNmIds(report: ParsedExistingComparisonReport): number[] {
     .filter((nmId) => Number.isInteger(nmId));
 }
 
+function getNumericNmIdsFromStrings(nmIds: string[]): number[] {
+  return nmIds.map((nmId) => Number(nmId)).filter((nmId) => Number.isInteger(nmId));
+}
+
 function clampIndex(index: number, maxIndex: number): number {
   return Math.max(0, Math.min(maxIndex, index));
 }
@@ -663,6 +667,50 @@ async function waitForCapturedDetailReport(
   );
 }
 
+async function waitForCapturedDetailReportByNmIds(
+  page: Page,
+  options: {
+    nmIds: number[];
+    periodStart: string;
+    periodEnd: string;
+  }
+): Promise<{
+  detail: WbDetailReport;
+  response: CapturedComparisonApiResponse;
+}> {
+  const expectedNmIds = new Set(options.nmIds);
+
+  return waitForCapturedApiResponse(
+    page,
+    (capture) => {
+      for (const response of [...capture.detailResponses].reverse()) {
+        if (
+          !requestPeriodMatches(response, options.periodStart, options.periodEnd) ||
+          !isWbDetailReport(response.payload)
+        ) {
+          continue;
+        }
+
+        const responseNmIds = new Set(
+          response.payload.salesFunnel.byDay.map((row) => row.nmID)
+        );
+
+        if (![...expectedNmIds].every((nmId) => responseNmIds.has(nmId))) {
+          continue;
+        }
+
+        return {
+          detail: response.payload,
+          response
+        };
+      }
+
+      return null;
+    },
+    "empty_result: opened quarter comparison report was not captured from WB detail API response"
+  );
+}
+
 function isMissingWhenRenderedAsZeroMetric(metricName: string): boolean {
   return metricName === "Медианная цена покупателя" || metricName === "Средняя позиция";
 }
@@ -985,29 +1033,26 @@ async function parseActiveComparisonChartDaily(
   };
 }
 
-export async function parseComparisonChartDailyFromApi(
-  page: Page,
-  report: ParsedExistingComparisonReport
-): Promise<ParsedComparisonChartDailyBatch> {
-  const nmIds = getNumericNmIds(report);
+function responseComparisonId(response: CapturedComparisonApiResponse): string | null {
+  const id = requestBodyRecord(response)?.id;
+  return typeof id === "string" && id.trim() !== "" ? id : null;
+}
 
-  if (nmIds.length !== 5) {
-    throw new Error(`empty_result: expected 5 SKU for chart API parsing, got ${nmIds.length}`);
-  }
-
-  const { start, end } = await readVisibleComparisonPeriod(page);
-  const dates = generateDates(start, end);
-  const historyReport = await waitForCapturedHistoryReport(page, report, nmIds);
-  const capturedDetail = await waitForCapturedDetailReport(page, {
-    comparisonId: historyReport.ID,
-    periodStart: start,
-    periodEnd: end
-  });
-  const { detail } = capturedDetail;
-  const selectedNmIds = new Set(nmIds);
+function buildComparisonChartDailyFromDetail(options: {
+  nmIds: number[];
+  dates: string[];
+  detail: WbDetailReport;
+  response: CapturedComparisonApiResponse;
+  comparisonId: string | null;
+  historyDate: string | null;
+  historyAvailableUntil: string | null;
+  periodStart: string;
+  periodEnd: string;
+}): ParsedComparisonChartDailyBatch {
+  const selectedNmIds = new Set(options.nmIds);
   const rowsByNmIdAndDate = new Map<string, SalesFunnelRow>();
 
-  for (const row of detail.salesFunnel.byDay) {
+  for (const row of options.detail.salesFunnel.byDay) {
     if (!selectedNmIds.has(row.nmID)) {
       continue;
     }
@@ -1020,8 +1065,8 @@ export async function parseComparisonChartDailyFromApi(
   }
 
   const points = COMPARISON_CHART_METRICS.flatMap((metric) =>
-    nmIds.flatMap((nmId, nmIndex) =>
-      dates.map((metricDate) => {
+    options.nmIds.flatMap((nmId, nmIndex) =>
+      options.dates.map((metricDate) => {
         const row = rowsByNmIdAndDate.get(`${nmId}:${metricDate}`);
         const classifiedValue = classifyApiValue(metric, apiMetricValue(row, metric));
 
@@ -1040,13 +1085,13 @@ export async function parseComparisonChartDailyFromApi(
           rawPayload: {
             parser: "wb_competitor_comparison_nms_detail_v3",
             sourceMode: "captured_browser_response",
-            apiEndpoint: capturedDetail.response.url,
+            apiEndpoint: options.response.url,
             apiField: metric.apiField,
-            comparisonId: historyReport.ID,
-            historyDate: historyReport.date,
-            historyAvailableUntil: historyReport.status.date ?? null,
-            capturedAt: capturedDetail.response.capturedAt,
-            requestBody: capturedDetail.response.requestBody,
+            comparisonId: options.comparisonId,
+            historyDate: options.historyDate,
+            historyAvailableUntil: options.historyAvailableUntil,
+            capturedAt: options.response.capturedAt,
+            requestBody: options.response.requestBody,
             rowFound: row !== undefined,
             apiRow: row ?? null
           }
@@ -1059,10 +1104,75 @@ export async function parseComparisonChartDailyFromApi(
     metricNames: COMPARISON_CHART_METRICS.map((metric) => metric.name),
     periodType: "quarter",
     granularity: "day",
-    periodStart: start,
-    periodEnd: end,
+    periodStart: options.periodStart,
+    periodEnd: options.periodEnd,
     points
   };
+}
+
+export async function parseComparisonChartDailyFromApi(
+  page: Page,
+  report: ParsedExistingComparisonReport
+): Promise<ParsedComparisonChartDailyBatch> {
+  const nmIds = getNumericNmIds(report);
+
+  if (nmIds.length !== 5) {
+    throw new Error(`empty_result: expected 5 SKU for chart API parsing, got ${nmIds.length}`);
+  }
+
+  const { start, end } = await readVisibleComparisonPeriod(page);
+  const dates = generateDates(start, end);
+  const historyReport = await waitForCapturedHistoryReport(page, report, nmIds);
+  const capturedDetail = await waitForCapturedDetailReport(page, {
+    comparisonId: historyReport.ID,
+    periodStart: start,
+    periodEnd: end
+  });
+
+  return buildComparisonChartDailyFromDetail({
+    nmIds,
+    dates,
+    detail: capturedDetail.detail,
+    response: capturedDetail.response,
+    comparisonId: historyReport.ID,
+    historyDate: historyReport.date,
+    historyAvailableUntil: historyReport.status.date ?? null,
+    periodStart: start,
+    periodEnd: end
+  });
+}
+
+export async function parseOpenedComparisonChartDailyFromApi(
+  page: Page,
+  nmIds: string[]
+): Promise<ParsedComparisonChartDailyBatch> {
+  const numericNmIds = getNumericNmIdsFromStrings(nmIds);
+
+  if (numericNmIds.length !== 5) {
+    throw new Error(
+      `empty_result: expected 5 SKU for opened chart API parsing, got ${numericNmIds.length}`
+    );
+  }
+
+  const { start, end } = await readVisibleComparisonPeriod(page);
+  const dates = generateDates(start, end);
+  const capturedDetail = await waitForCapturedDetailReportByNmIds(page, {
+    nmIds: numericNmIds,
+    periodStart: start,
+    periodEnd: end
+  });
+
+  return buildComparisonChartDailyFromDetail({
+    nmIds: numericNmIds,
+    dates,
+    detail: capturedDetail.detail,
+    response: capturedDetail.response,
+    comparisonId: responseComparisonId(capturedDetail.response),
+    historyDate: null,
+    historyAvailableUntil: null,
+    periodStart: start,
+    periodEnd: end
+  });
 }
 
 export async function parseComparisonChartDaily(

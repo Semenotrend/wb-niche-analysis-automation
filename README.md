@@ -2,7 +2,7 @@
 
 Локальная Playwright-автоматизация для WB Partners с записью результатов в PostgreSQL.
 
-Основной текущий сценарий: читать уже готовые сравнения карточек, открывать один отчет на 5 SKU, выбирать период `Квартал` и сохранять дневные данные графика в БД.
+Основной текущий сценарий: создать сравнение карточек по 5 глобально неиспользованным SKU, дождаться открытого отчета, выбрать период `Квартал` и сохранить дневные данные графика в БД.
 
 ## Что делает проект
 
@@ -10,8 +10,9 @@
 
 1. `niche-report` - собирает метрики ниши.
 2. `niche-query-stats` - собирает поисковые запросы по нише.
-3. `compare-cards` - собирает карточки из раздела `Сравнение карточек`.
-4. `existing-compare-reports` - основной read-only flow для готовых сравнений карточек.
+3. `compare-cards` - создает сравнение карточек и сразу собирает открытый отчет.
+4. `compare-cards-next` - создает следующее сравнение из уже сохраненного пула SKU и сразу собирает отчет.
+5. `existing-compare-reports` - read-only flow для уже готовых сравнений карточек.
 
 `existing-compare-reports` не нажимает `Сравнить карточки` и не создает новое сравнение. Он работает с уже готовым отчетом, который виден на первом экране истории сравнений.
 
@@ -28,7 +29,32 @@
 npm install -g pnpm
 ```
 
-## Текущий workflow готовых сравнений
+## Текущий workflow создания и сбора сравнения
+
+Flow `compare-cards`:
+
+1. Открывает `https://seller.wildberries.ru/platform-analytics/cards-comparison`.
+2. Выбирает рекомендации по предмету и топ карточек.
+3. Сохраняет 50 найденных `nm_id` в PostgreSQL.
+4. Добавляет 5 глобально неиспользованных SKU через ручной ввод.
+5. Резервирует эти 5 SKU до финального submit.
+6. Нажимает `Сравнить карточки`.
+7. Дожидается открытого отчета.
+8. Выбирает период `Квартал`.
+9. Читает уже загруженный WB-фронтом API-ответ `salesFunnel.byDay`.
+10. Сохраняет отчет, 5 SKU и дневные значения графика в PostgreSQL.
+
+Flow `compare-cards-next`:
+
+1. Открывает страницу `Сравнение карточек`.
+2. Находит source-run с уже сохраненным пулом 50 SKU для текущего `subject/topBy`.
+3. Создает новый `automation.runs` для следующего сравнения.
+4. Берет следующие 5 глобально неиспользованных SKU из source-run.
+5. Открывает ручной ввод SKU.
+6. Добавляет эти 5 SKU, резервирует их в source-run и нажимает `Сравнить карточки`.
+7. Дальше использует тот же хвост: открытый отчет, `Квартал`, captured `salesFunnel.byDay`, сохранение отчета и графика.
+
+## Read-only workflow готовых сравнений
 
 Flow `existing-compare-reports`:
 
@@ -157,7 +183,42 @@ pnpm run doctor
 
 Этот файл не должен попадать в git.
 
-## Запуск сбора готового сравнения
+## Запуск создания и сбора сравнения
+
+```bash
+HEADLESS=false pnpm run compare-cards
+```
+
+Успешный запуск выглядит так:
+
+```text
+[compare-cards] saved 50 unique card IDs to DB run_id=...
+[compare-cards] submitted 5 cards comparison_request_id=...
+[compare-cards] collected submitted report report_id=... 5 card rows 6750 chart daily rows
+```
+
+## Запуск следующей пятерки из сохраненного пула
+
+```bash
+HEADLESS=false pnpm run compare-cards-next
+```
+
+По умолчанию сценарий сам берет последний source-run по текущему `subject/topBy`,
+где осталось минимум 5 глобально неиспользованных SKU. Чтобы указать пул явно:
+
+```bash
+SOURCE_RUN_ID=<run_id> HEADLESS=false pnpm run compare-cards-next
+```
+
+Успешный запуск выглядит так:
+
+```text
+[compare-cards-next] selected 5 cards source_run_id=... available_before=45 nm_ids=...
+[compare-cards-next] submitted 5 cards comparison_request_id=...
+[compare-cards-next] collected submitted report run_id=... report_id=... 5 card rows 6750 chart daily rows
+```
+
+## Read-only запуск готового сравнения
 
 ```bash
 HEADLESS=false pnpm run existing-compare-reports
@@ -177,8 +238,8 @@ HEADLESS=false pnpm run existing-compare-reports
 |---|---|
 | `automation.runs` | Один запуск сценария |
 | `automation.step_logs` | Логи шагов Playwright-сценария |
-| `wb_analytics.compare_card_recommendations` | 50 найденных карточек и флаги `used_for_comparison` после submit |
-| `wb_analytics.compare_card_comparison_requests` | Пачки по 5 карточек, отправленные в создание сравнения |
+| `wb_analytics.compare_card_recommendations` | 50 найденных карточек и флаги `used_for_comparison` для глобальной защиты от повторного выбора |
+| `wb_analytics.compare_card_comparison_requests` | Пачки по 5 карточек, зарезервированные и затем отправленные в создание сравнения |
 | `wb_analytics.compare_card_reports` | Готовый блок сравнения: дата, срок доступности, raw payload |
 | `wb_analytics.compare_card_report_items` | 5 SKU из выбранного сравнения |
 | `wb_analytics.compare_card_report_chart_daily` | Дневные значения графика по SKU, метрикам и датам |
@@ -272,7 +333,8 @@ pnpm run typecheck
 pnpm run playwright:install
 pnpm run login
 pnpm run doctor
-HEADLESS=false pnpm run existing-compare-reports
+HEADLESS=false pnpm run compare-cards
+HEADLESS=false pnpm run compare-cards-next
 bash database/scripts/connect.sh
 ```
 

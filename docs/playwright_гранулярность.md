@@ -46,9 +46,37 @@ https://seller.wildberries.ru/platform-analytics/niche-analysis/item?id=643
 | 5 | `selectTopByRevenue` | В блоке `Показать топ карточек` выбирает `topBy` текущего сценария из `config/scenario.json` и применяет | Слева загружен список карточек, видны кнопки `Добавить` |
 | 6 | `parseCompareCardIds` | Из DOM списка рекомендаций собирает 50 уникальных `nm_id` карточек по ссылкам `wildberries.ru/catalog/{id}/detail.aspx` | Получено ровно 50 уникальных ID без дублей |
 | 7 | `saveCompareCardIdsToDb` | Сохраняет ID карточек в `wb_analytics.compare_card_recommendations` | В БД записано 50 строк, `COUNT(*) = COUNT(DISTINCT nm_id)` для запуска |
-| 8 | `addManualCompareCards` | По `run_id` берет из `wb_analytics.compare_card_recommendations` первые 5 неиспользованных `nm_id` по `rank_position`, обновляет страницу, снова нажимает `Сравнить карточки`, оставляет режим `Ввести вручную`, по очереди вводит каждый артикул, нажимает `Enter` и кликает `Добавить` у найденной карточки | Добавлено 5 разных карточек; перед добавлением ID проверены на дубли, каждый клик `Добавить` привязан к карточке с конкретной ссылкой `/catalog/{nm_id}/detail.aspx` |
-| 9 | `submitCompareCards` | Ждет счетчик `Карточки для сравнения: 5 из 5`, проверяет активность верхней кнопки `Сравнить карточки` и нажимает ее | На странице появляется сигнал созданного сравнения: `Дата сравнения`, `Доступен до` или сообщение о формировании отчета |
-| 10 | `markCompareCardsUsedForComparison` | Создает запись пачки в `compare_card_comparison_requests` и помечает 5 выбранных строк в `compare_card_recommendations` | У 5 строк стоит `used_for_comparison = true`, заполнены `comparison_request_id`, `comparison_slot`, `used_at` |
+| 8 | `addManualCompareCards` | По `run_id` берет из `wb_analytics.compare_card_recommendations` первые 5 `nm_id` по `rank_position`, которые еще не были зарезервированы/использованы ни в одном прошлом запуске, обновляет страницу, снова нажимает `Сравнить карточки`, оставляет режим `Ввести вручную`, по очереди вводит каждый артикул, нажимает `Enter` и кликает `Добавить` у найденной карточки | Добавлено 5 разных карточек; перед добавлением ID проверены на дубли и глобальное использование, каждый клик `Добавить` привязан к карточке с конкретной ссылкой `/catalog/{nm_id}/detail.aspx` |
+| 9 | `reserveCompareCardsForComparison` | До финального submit создает запись пачки в `compare_card_comparison_requests` и помечает 5 выбранных строк в `compare_card_recommendations` | У 5 строк стоит `used_for_comparison = true`, заполнены `comparison_request_id`, `comparison_slot`, `used_at`; если процесс упадет после этого, следующий запуск не возьмет эти SKU повторно |
+| 10 | `attachComparisonApiCapture` | До финального submit включает перехват WB API `history` и `nms/detail` на текущей странице | Ответы отчета после submit и после выбора квартала будут доступны парсеру |
+| 11 | `submitCompareCards` | Ждет счетчик `Карточки для сравнения: 5 из 5`, проверяет активность верхней кнопки `Сравнить карточки` и нажимает ее | WB открывает созданный отчет или показывает сигнал созданного сравнения |
+| 12 | `markCompareCardsComparisonSubmitted` | После успешного submit проставляет `submitted_at` у созданной записи пачки | В `compare_card_comparison_requests` зафиксирован факт успешной отправки |
+| 13 | `parseOpenedComparisonReport` | Ждет открытый отчет после submit и строит описание отчета из 5 отправленных `nm_id` без чтения истории | Видна кнопка `История сравнений`, отчет привязан к текущему `comparison_request_id` |
+| 14 | `saveSubmittedComparisonReportToDb` | Сохраняет открытый отчет в `wb_analytics.compare_card_reports` и 5 SKU в `wb_analytics.compare_card_report_items` под тем же `run_id` | В БД записан отчет, связанный с только что созданной пачкой |
+| 15 | `selectComparisonQuarterPeriod` | Нажимает кнопку `Квартал` в открытом отчете сравнения | Кнопка `Квартал` видна, блок `Данные за период...` обновлен |
+| 16 | `parseOpenedComparisonChartDailyFromApi` | Берет captured WB `nms/detail` для открытого отчета и 5 отправленных `nm_id`, раскладывает 15 полей `salesFunnel.byDay` по `metric_name`, `nm_id`, `metric_date` | Найден captured detail response для этих SKU и квартального периода |
+| 17 | `saveComparisonChartDailyToDb` | Сохраняет дневные точки всех 15 разделов в `wb_analytics.compare_card_report_chart_daily` | В PostgreSQL записаны точки с `source = api_sales_funnel` |
+
+## Сценарий "Следующая пятерка из сохраненного пула"
+
+Этот сценарий не собирает 50 рекомендаций заново. Он берет уже сохраненный source-run, выбирает следующие 5 глобально неиспользованных SKU и дальше выполняет тот же хвост: ручной ввод, submit, открытый отчет, `Квартал`, captured `salesFunnel.byDay`.
+
+| N | Функция | Что делает | Проверка успешности |
+|---|---|---|---|
+| 1 | `openCompareCardsPage` | Открывает страницу сравнения карточек | Заголовок страницы `Сравнение карточек` |
+| 2 | `createCompareCardsNextRun` | Создает новый `automation.runs` со ссылкой на source-run; если `SOURCE_RUN_ID` не задан, выбирает последний пул по `subject/topBy` с минимум 5 доступными SKU | Новый run имеет `scenario_name = compare_cards_next`, в `scenario_config` записан `sourceRunId` |
+| 3 | `loadNextCompareCardIds` | Берет из source-run следующие 5 `nm_id`, исключая любые SKU, уже использованные глобально | Получено ровно 5 ID |
+| 4 | `startCompareCards` | Открывает форму сравнения карточек | Видна форма ручного добавления |
+| 5 | `addManualCompareCardIds` | Вводит 5 SKU через поле `Введите артикул WB` и кликает `Добавить` у найденных карточек | Счетчик карточек доходит до `5 из 5` |
+| 6 | `reserveCompareCardsForComparison` | Создает request в новом run, но помечает использованными строки source-run | У source-run строк заполнены `used_for_comparison`, `comparison_request_id`, `comparison_slot`, `used_at` |
+| 7 | `attachComparisonApiCapture` | Включает перехват WB API | Ответы отчета доступны парсеру |
+| 8 | `submitCompareCards` | Нажимает финальную кнопку `Сравнить карточки` | Открывается созданный отчет |
+| 9 | `markCompareCardsComparisonSubmitted` | Проставляет `submitted_at` у request | В БД зафиксирован успешный submit |
+| 10 | `parseOpenedComparisonReport` | Строит запись отчета по открытой странице и 5 отправленным SKU | Отчет привязан к текущему request |
+| 11 | `saveSubmittedComparisonReportToDb` | Сохраняет отчет и 5 SKU под новым run | В БД записаны report/items |
+| 12 | `selectComparisonQuarterPeriod` | Нажимает `Квартал` | Период обновлен |
+| 13 | `parseOpenedComparisonChartDailyFromApi` | Берет captured `nms/detail` для этих 5 SKU | Получены дневные точки |
+| 14 | `saveComparisonChartDailyToDb` | Сохраняет long-format точки графика | В БД записаны chart rows |
 
 ## Сценарий "Готовые сравнения карточек"
 

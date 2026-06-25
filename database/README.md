@@ -68,8 +68,8 @@ wb_analytics
 | `wb_analytics.niche_metrics` | Метрики ниши в long-format |
 | `wb_analytics.niche_search_queries` | Поисковые запросы из блока `Поисковые запросы` |
 | `wb_analytics.niche_dynamics_daily` | Дневная динамика графиков, если получим ее из DOM/API |
-| `wb_analytics.compare_card_recommendations` | 50 уникальных ID карточек из рекомендаций `Сравнение карточек` и флаги использования в submit |
-| `wb_analytics.compare_card_comparison_requests` | Пачки по 5 карточек, отправленные кнопкой `Сравнить карточки` |
+| `wb_analytics.compare_card_recommendations` | 50 уникальных ID карточек из рекомендаций `Сравнение карточек` и флаги глобального использования |
+| `wb_analytics.compare_card_comparison_requests` | Пачки по 5 карточек, зарезервированные и затем отправленные кнопкой `Сравнить карточки` |
 | `wb_analytics.compare_card_reports` | Список уже готовых сравнений карточек с датой, сроком доступности и raw payload |
 | `wb_analytics.compare_card_report_items` | 5 SKU из видимого готового сравнения |
 | `wb_analytics.compare_card_report_chart_daily` | Дневные точки графика открытого готового сравнения карточек |
@@ -173,9 +173,17 @@ Playwright flow
   -> automation.step_logs
   -> wb_analytics.compare_card_recommendations
   -> addManualCompareCards
-  -> submitCompareCards
   -> wb_analytics.compare_card_comparison_requests
   -> used_for_comparison flags
+  -> attachComparisonApiCapture
+  -> submitCompareCards
+  -> submitted_at
+  -> parseOpenedComparisonReport
+  -> wb_analytics.compare_card_reports
+  -> wb_analytics.compare_card_report_items
+  -> selectComparisonQuarterPeriod
+  -> parseOpenedComparisonChartDailyFromApi из captured salesFunnel.byDay для 15 разделов графика
+  -> wb_analytics.compare_card_report_chart_daily
 ```
 
 В `wb_analytics.compare_card_recommendations` дубли внутри одного запуска запрещены:
@@ -185,7 +193,7 @@ UNIQUE (run_id, nm_id)
 UNIQUE (run_id, rank_position)
 ```
 
-После успешного submit ровно 5 строк получают:
+Перед финальным submit ровно 5 строк получают:
 
 ```text
 used_for_comparison = true
@@ -193,6 +201,38 @@ comparison_request_id = <request_id>
 comparison_slot = 1..5
 used_at = <timestamp>
 ```
+
+Выбор следующих 5 карточек исключает `nm_id`, у которых уже есть
+`used_for_comparison = true` в любом прошлом запуске. Поэтому повторный запуск
+не берет те же SKU, даже если предыдущий процесс упал после резервирования.
+
+Для сценария `compare-cards-next`:
+
+```text
+Playwright flow
+  -> openCompareCardsPage
+  -> createCompareCardsNextRun
+     -> automation.runs (scenario_name = compare_cards_next)
+     -> scenario_config.sourceRunId = <source run with 50 SKU>
+  -> loadNextCompareCardIds из source-run
+  -> startCompareCards
+  -> addManualCompareCardIds
+  -> wb_analytics.compare_card_comparison_requests (run_id = new next run)
+  -> used_for_comparison flags on source-run recommendations
+  -> submitCompareCards
+  -> submitted_at
+  -> parseOpenedComparisonReport
+  -> wb_analytics.compare_card_reports (run_id = new next run)
+  -> wb_analytics.compare_card_report_items
+  -> selectComparisonQuarterPeriod
+  -> parseOpenedComparisonChartDailyFromApi из captured salesFunnel.byDay
+  -> wb_analytics.compare_card_report_chart_daily
+```
+
+`compare-cards-next` не пишет новые строки в
+`wb_analytics.compare_card_recommendations`. Он переиспользует уже сохраненный
+пул source-run и только помечает выбранные строки как использованные через
+`comparison_request_id`.
 
 Для сценария `existing-compare-reports`:
 

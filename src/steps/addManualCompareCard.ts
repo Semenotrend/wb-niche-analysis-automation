@@ -4,15 +4,15 @@ import { startCompareCards } from "./startCompareCards.js";
 
 export const MANUAL_COMPARE_CARD_LIMIT = 5;
 
-async function loadManualCompareCardIds(
+export async function loadManualCompareCardIdsFromDb(
   runId: string,
-  limit: number
+  limit: number = MANUAL_COMPARE_CARD_LIMIT
 ): Promise<string[]> {
   const nmIds = await getAutomationStorage().loadManualCompareCardIds(runId, limit);
 
   if (nmIds.length < limit) {
     throw new Error(
-      `empty_result: expected ${limit} compare card IDs in DB for manual add, got ${nmIds.length}`
+      `empty_result: expected ${limit} globally unused compare card IDs in DB for manual add, got ${nmIds.length}`
     );
   }
 
@@ -62,8 +62,7 @@ export async function addManualCompareCards(
   runId: string,
   limit: number = MANUAL_COMPARE_CARD_LIMIT
 ): Promise<string[]> {
-  const nmIds = await loadManualCompareCardIds(runId, limit);
-  const addedNmIds = new Set<string>();
+  const nmIds = await loadManualCompareCardIdsFromDb(runId, limit);
 
   await page.reload({ waitUntil: "domcontentloaded" });
 
@@ -79,6 +78,15 @@ export async function addManualCompareCards(
   });
 
   await startCompareCards(page);
+
+  return addManualCompareCardIds(page, nmIds);
+}
+
+export async function addManualCompareCardIds(
+  page: Page,
+  nmIds: string[]
+): Promise<string[]> {
+  const addedNmIds = new Set<string>();
 
   for (const nmId of nmIds) {
     if (addedNmIds.has(nmId)) {

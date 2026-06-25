@@ -5,6 +5,7 @@
   "scripts": {
     "login": "tsx src/cli/login.ts",
     "compare-cards": "tsx src/cli/run-compare-cards.ts",
+    "compare-cards-next": "tsx src/cli/run-compare-cards-next.ts",
     "existing-compare-reports": "tsx src/cli/run-existing-compare-reports.ts",
     "niche-report": "tsx src/cli/run-niche-report.ts",
     "niche-query-stats": "tsx src/cli/run-niche-query-stats.ts",

@@ -1,9 +1,14 @@
 import { withDbClient, type DbClient } from "./db.js";
+import { classifyIncident } from "./incidents.js";
 import type { StepExecutionLog } from "./stepRunner.js";
 import type {
   AutomationStorage,
-  MarkCompareCardsUsedForComparisonOptions,
-  MarkCompareCardsUsedForComparisonResult,
+  CreateCompareCardsNextRunOptions,
+  CreateCompareCardsNextRunResult,
+  MarkRunFailedOptions,
+  MarkCompareCardsComparisonSubmittedOptions,
+  ReserveCompareCardsForComparisonOptions,
+  ReserveCompareCardsForComparisonResult,
   SaveCompareCardIdsOptions,
   SaveCompareCardIdsResult,
   SaveNicheQueryStatsOptions,
@@ -36,6 +41,30 @@ async function insertRun(
         finished_at
       )
       VALUES ($1, $2::jsonb, $3::jsonb, 'success', now(), now())
+      RETURNING run_id
+    `,
+    [scenarioName, JSON.stringify(scenarioConfig), JSON.stringify(runtimeConfig)]
+  );
+
+  return result.rows[0].run_id;
+}
+
+async function insertRunningRun(
+  client: DbClient,
+  scenarioName: string,
+  scenarioConfig: unknown,
+  runtimeConfig: unknown
+): Promise<string> {
+  const result = await client.query<{ run_id: string }>(
+    `
+      INSERT INTO automation.runs (
+        scenario_name,
+        scenario_config,
+        runtime_config,
+        status,
+        started_at
+      )
+      VALUES ($1, $2::jsonb, $3::jsonb, 'running', now())
       RETURNING run_id
     `,
     [scenarioName, JSON.stringify(scenarioConfig), JSON.stringify(runtimeConfig)]
@@ -98,10 +127,45 @@ async function updateRunDurationAndStepLogs(
       await client.query(
         `
           UPDATE automation.runs
-          SET duration_ms = $2
+          SET
+            status = 'success',
+            incident_type = NULL,
+            finished_at = now(),
+            duration_ms = $2
           WHERE run_id = $1
         `,
         [options.runId, getRunDurationMs(options.stepLogs)]
+      );
+      await replaceStepLogs(client, options.runId, options.stepLogs, source);
+      await client.query("COMMIT");
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    }
+  });
+}
+
+async function markRunFailed(
+  options: MarkRunFailedOptions,
+  source: string
+): Promise<void> {
+  const incidentType = classifyIncident(options.error);
+
+  await withDbClient(async (client) => {
+    await client.query("BEGIN");
+
+    try {
+      await client.query(
+        `
+          UPDATE automation.runs
+          SET
+            status = 'failed',
+            incident_type = $2,
+            finished_at = now(),
+            duration_ms = $3
+          WHERE run_id = $1
+        `,
+        [options.runId, incidentType, getRunDurationMs(options.stepLogs)]
       );
       await replaceStepLogs(client, options.runId, options.stepLogs, source);
       await client.query("COMMIT");
@@ -368,6 +432,127 @@ async function saveCompareCardIds(
   });
 }
 
+async function resolveCompareCardsNextSourceRun(
+  client: DbClient,
+  options: CreateCompareCardsNextRunOptions
+): Promise<{ sourceRunId: string; availableCount: number }> {
+  const sourceRunId = options.sourceRunId?.trim() ?? "";
+
+  if (sourceRunId !== "") {
+    const result = await client.query<{
+      source_run_id: string;
+      available_count: string;
+    }>(
+      `
+        SELECT
+          candidate.run_id::text AS source_run_id,
+          count(*)::text AS available_count
+        FROM wb_analytics.compare_card_recommendations AS candidate
+        WHERE candidate.run_id = $1
+          AND candidate.subject_name = $2
+          AND candidate.top_by = $3
+          AND candidate.used_for_comparison = false
+          AND NOT EXISTS (
+            SELECT 1
+            FROM wb_analytics.compare_card_recommendations AS used
+            WHERE used.nm_id = candidate.nm_id
+              AND used.used_for_comparison = true
+          )
+        GROUP BY candidate.run_id
+        HAVING count(*) >= $4
+      `,
+      [sourceRunId, options.scenario.subject, options.scenario.topBy, options.limit]
+    );
+
+    if (result.rows.length === 0) {
+      throw new Error(
+        `empty_result: source run "${sourceRunId}" has fewer than ${options.limit} globally unused compare card IDs for ${options.scenario.subject}`
+      );
+    }
+
+    return {
+      sourceRunId: result.rows[0].source_run_id,
+      availableCount: Number(result.rows[0].available_count)
+    };
+  }
+
+  const result = await client.query<{
+    source_run_id: string;
+    available_count: string;
+  }>(
+    `
+      SELECT
+        candidate.run_id::text AS source_run_id,
+        count(*)::text AS available_count
+      FROM wb_analytics.compare_card_recommendations AS candidate
+      JOIN automation.runs AS run ON run.run_id = candidate.run_id
+      WHERE candidate.subject_name = $1
+        AND candidate.top_by = $2
+        AND candidate.used_for_comparison = false
+        AND NOT EXISTS (
+          SELECT 1
+          FROM wb_analytics.compare_card_recommendations AS used
+          WHERE used.nm_id = candidate.nm_id
+            AND used.used_for_comparison = true
+        )
+      GROUP BY candidate.run_id, run.created_at
+      HAVING count(*) >= $3
+      ORDER BY max(candidate.created_at) DESC, run.created_at DESC
+      LIMIT 1
+    `,
+    [options.scenario.subject, options.scenario.topBy, options.limit]
+  );
+
+  if (result.rows.length === 0) {
+    throw new Error(
+      `empty_result: no compare card source run has ${options.limit} globally unused IDs for ${options.scenario.subject}`
+    );
+  }
+
+  return {
+    sourceRunId: result.rows[0].source_run_id,
+    availableCount: Number(result.rows[0].available_count)
+  };
+}
+
+async function createCompareCardsNextRun(
+  options: CreateCompareCardsNextRunOptions
+): Promise<CreateCompareCardsNextRunResult> {
+  return withDbClient(async (client) => {
+    await client.query("BEGIN");
+
+    try {
+      const source = await resolveCompareCardsNextSourceRun(client, options);
+      const runId = await insertRunningRun(
+        client,
+        "compare_cards_next",
+        {
+          ...options.scenario,
+          sourceUrl: options.sourceUrl,
+          sourceRunId: source.sourceRunId,
+          sourceMode: options.sourceRunId?.trim()
+            ? "explicit_source_run"
+            : "latest_available_source_run",
+          compareCardLimit: options.limit,
+          sourceAvailableBeforeRun: source.availableCount
+        },
+        options.runtime
+      );
+
+      await client.query("COMMIT");
+
+      return {
+        runId,
+        sourceRunId: source.sourceRunId,
+        availableCount: source.availableCount
+      };
+    } catch (error) {
+      await client.query("ROLLBACK");
+      throw error;
+    }
+  });
+}
+
 async function loadManualCompareCardIds(
   runId: string,
   limit: number
@@ -375,11 +560,17 @@ async function loadManualCompareCardIds(
   return withDbClient(async (client) => {
     const result = await client.query<{ nm_id: string }>(
       `
-        SELECT nm_id::text AS nm_id
-        FROM wb_analytics.compare_card_recommendations
-        WHERE run_id = $1
-          AND used_for_comparison = false
-        ORDER BY rank_position
+        SELECT candidate.nm_id::text AS nm_id
+        FROM wb_analytics.compare_card_recommendations AS candidate
+        WHERE candidate.run_id = $1
+          AND candidate.used_for_comparison = false
+          AND NOT EXISTS (
+            SELECT 1
+            FROM wb_analytics.compare_card_recommendations AS used
+            WHERE used.nm_id = candidate.nm_id
+              AND used.used_for_comparison = true
+          )
+        ORDER BY candidate.rank_position
         LIMIT $2
       `,
       [runId, limit]
@@ -389,17 +580,18 @@ async function loadManualCompareCardIds(
   });
 }
 
-async function markCompareCardsUsedForComparison(
-  options: MarkCompareCardsUsedForComparisonOptions
-): Promise<MarkCompareCardsUsedForComparisonResult> {
+async function reserveCompareCardsForComparison(
+  options: ReserveCompareCardsForComparisonOptions
+): Promise<ReserveCompareCardsForComparisonResult> {
   const uniqueNmIds = new Set(options.nmIds);
+  const recommendationsRunId = options.recommendationsRunId ?? options.runId;
 
   if (options.nmIds.length === 0) {
-    throw new Error("empty_result: no compare card IDs to mark as used");
+    throw new Error("empty_result: no compare card IDs to reserve for comparison");
   }
 
   if (uniqueNmIds.size !== options.nmIds.length) {
-    throw new Error("schema_changed: duplicate compare card IDs to mark as used");
+    throw new Error("schema_changed: duplicate compare card IDs to reserve");
   }
 
   return withDbClient(async (client) => {
@@ -416,14 +608,18 @@ async function markCompareCardsUsedForComparison(
             submitted_at,
             raw_payload
           )
-          VALUES ($1, 'submitted', $2, $3, now(), $4::jsonb)
+          VALUES ($1, 'submitted', $2, $3, NULL, $4::jsonb)
           RETURNING request_id
         `,
         [
           options.runId,
           options.nmIds.length,
           options.sourceUrl,
-          JSON.stringify({ nmIds: options.nmIds })
+          JSON.stringify({
+            nmIds: options.nmIds,
+            recommendationsRunId,
+            reservedBeforeSubmit: true
+          })
         ]
       );
       const comparisonRequestId = requestResult.rows[0].request_id;
@@ -440,13 +636,19 @@ async function markCompareCardsUsedForComparison(
             WHERE run_id = $1
               AND nm_id = $4
               AND used_for_comparison = false
+              AND NOT EXISTS (
+                SELECT 1
+                FROM wb_analytics.compare_card_recommendations AS used
+                WHERE used.nm_id = $4
+                  AND used.used_for_comparison = true
+              )
           `,
-          [options.runId, comparisonRequestId, index + 1, nmId]
+          [recommendationsRunId, comparisonRequestId, index + 1, nmId]
         );
 
         if ((updateResult.rowCount ?? 0) !== 1) {
           throw new Error(
-            `empty_result: expected one unused compare card ID "${nmId}" to mark`
+            `empty_result: expected one globally unused compare card ID "${nmId}" to reserve`
           );
         }
       }
@@ -464,6 +666,34 @@ async function markCompareCardsUsedForComparison(
   });
 }
 
+async function markCompareCardsComparisonSubmitted(
+  options: MarkCompareCardsComparisonSubmittedOptions
+): Promise<void> {
+  await withDbClient(async (client) => {
+    const result = await client.query(
+      `
+        UPDATE wb_analytics.compare_card_comparison_requests
+        SET
+          submitted_at = now(),
+          source_url = $2,
+          raw_payload = raw_payload || $3::jsonb
+        WHERE request_id = $1
+      `,
+      [
+        options.comparisonRequestId,
+        options.sourceUrl,
+        JSON.stringify({ submitted: true })
+      ]
+    );
+
+    if ((result.rowCount ?? 0) !== 1) {
+      throw new Error(
+        `empty_result: expected one compare card comparison request "${options.comparisonRequestId}" to mark submitted`
+      );
+    }
+  });
+}
+
 export function createPostgresStorage(): AutomationStorage {
   return {
     saveNicheReport,
@@ -475,7 +705,13 @@ export function createPostgresStorage(): AutomationStorage {
     saveCompareCardIds,
     saveCompareCardStepLogs: (options) =>
       updateRunDurationAndStepLogs(options, "compareCardsFlow"),
+    saveCompareCardsNextStepLogs: (options) =>
+      updateRunDurationAndStepLogs(options, "compareCardsNextFlow"),
+    markCompareCardsNextRunFailed: (options) =>
+      markRunFailed(options, "compareCardsNextFlow"),
     loadManualCompareCardIds,
-    markCompareCardsUsedForComparison
+    createCompareCardsNextRun,
+    reserveCompareCardsForComparison,
+    markCompareCardsComparisonSubmitted
   };
 }
