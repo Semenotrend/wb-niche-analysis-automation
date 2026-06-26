@@ -120,6 +120,28 @@ function normalizeScenarioConfigs(raw: RawScenarioConfig): ScenarioConfig[] {
   return [normalizeScenario(raw, raw, "")];
 }
 
+function selectScenarioByEnv(scenarios: ScenarioConfig[]): ScenarioConfig[] {
+  const rawIndex = process.env.SCENARIO_INDEX?.trim();
+
+  if (rawIndex === undefined || rawIndex === "") {
+    return scenarios;
+  }
+
+  if (!/^\d+$/.test(rawIndex)) {
+    throw new Error("config: SCENARIO_INDEX must be a zero-based integer");
+  }
+
+  const index = Number(rawIndex);
+
+  if (index < 0 || index >= scenarios.length) {
+    throw new Error(
+      `config: SCENARIO_INDEX ${index} is out of range for ${scenarios.length} scenarios`
+    );
+  }
+
+  return [scenarios[index]];
+}
+
 export async function loadScenarioConfig(): Promise<ScenarioConfig> {
   const scenarios = await loadScenarioConfigs();
   return scenarios[0];
@@ -130,7 +152,7 @@ export async function loadScenarioConfigs(): Promise<ScenarioConfig[]> {
     join(PROJECT_ROOT, "config", "scenario.json")
   );
 
-  return normalizeScenarioConfigs(rawScenario);
+  return selectScenarioByEnv(normalizeScenarioConfigs(rawScenario));
 }
 
 export async function loadRuntimeConfig(): Promise<RuntimeConfig> {

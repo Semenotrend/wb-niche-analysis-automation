@@ -9,6 +9,7 @@
     "existing-compare-reports": "tsx src/cli/run-existing-compare-reports.ts",
     "niche-report": "tsx src/cli/run-niche-report.ts",
     "niche-query-stats": "tsx src/cli/run-niche-query-stats.ts",
+    "compare-pool-status": "tsx src/cli/check-compare-pool.ts",
     "doctor": "tsx src/cli/doctor.ts",
     "playwright:install": "playwright install chromium",
     "typecheck": "tsc --noEmit"

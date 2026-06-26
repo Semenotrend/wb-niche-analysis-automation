@@ -1,0 +1,108 @@
+services:
+  airflow-postgres:
+    image: postgres:16
+    container_name: wb-niche-airflow-postgres
+    environment:
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+      POSTGRES_DB: airflow
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow -d airflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    volumes:
+      - airflow_postgres_data:/var/lib/postgresql/data
+
+  airflow-init:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: wb-niche-airflow:local
+    container_name: wb-niche-airflow-init
+    depends_on:
+      airflow-postgres:
+        condition: service_healthy
+    user: "0:0"
+    environment: &airflow-common-env
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-postgres:5432/airflow
+      AIRFLOW__WEBSERVER__SECRET_KEY: wb-niche-local-secret
+      AIRFLOW__WEBSERVER__EXPOSE_CONFIG: "true"
+      DATABASE_URL: postgresql://wb_niche:wb_niche_local@host.docker.internal:7777/wb_niche_analysis
+      WB_NICHE_PROJECT_ROOT: /opt/airflow/project
+      WB_NICHE_HEADLESS: "true"
+      WB_NICHE_COMPARE_BATCH_MIN_SECONDS: "60"
+      WB_NICHE_COMPARE_BATCH_PAUSE_SECONDS: "60"
+      PNPM_HOME: /home/airflow/.local/share/pnpm
+      NPM_CONFIG_STORE_DIR: /home/airflow/.local/share/pnpm/store
+      npm_config_store_dir: /home/airflow/.local/share/pnpm/store
+      pnpm_config_store_dir: /home/airflow/.local/share/pnpm/store
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes: &airflow-common-volumes
+      - ..:/opt/airflow/project
+      - ./dags:/opt/airflow/dags
+      - airflow_logs:/opt/airflow/logs
+      - airflow_plugins:/opt/airflow/plugins
+      - project_node_modules:/opt/airflow/project/node_modules
+      - playwright_cache:/home/airflow/.cache/ms-playwright
+      - pnpm_store:/home/airflow/.local/share/pnpm
+    command: >
+      bash -lc '
+        set -euo pipefail
+        mkdir -p /opt/airflow/project/node_modules /home/airflow/.cache/ms-playwright /home/airflow/.local/share/pnpm /opt/airflow/logs /opt/airflow/plugins
+        chown -R airflow:0 /opt/airflow/project/node_modules /home/airflow/.cache /home/airflow/.local /opt/airflow/logs /opt/airflow/plugins
+        export AIRFLOW_USER_PATH="/home/airflow/.local/bin:/usr/local/bin:/usr/bin:/bin"
+        su -s /bin/bash airflow -c "PATH=$$AIRFLOW_USER_PATH airflow db migrate"
+        su -s /bin/bash airflow -c "PATH=$$AIRFLOW_USER_PATH airflow users create --username admin --firstname Local --lastname Admin --role Admin --email admin@example.com --password admin" || true
+        su -s /bin/bash airflow -c "cd /opt/airflow/project && PATH=$$AIRFLOW_USER_PATH pnpm install --frozen-lockfile"
+        su -s /bin/bash airflow -c "cd /opt/airflow/project && PATH=$$AIRFLOW_USER_PATH pnpm exec playwright install chromium"
+      '
+
+  airflow-webserver:
+    image: wb-niche-airflow:local
+    container_name: wb-niche-airflow-webserver
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      airflow-postgres:
+        condition: service_healthy
+    environment:
+      <<: *airflow-common-env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes: *airflow-common-volumes
+    ports:
+      - "7778:8080"
+    command: bash -lc "airflow webserver"
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail http://localhost:8080/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+
+  airflow-scheduler:
+    image: wb-niche-airflow:local
+    container_name: wb-niche-airflow-scheduler
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+      airflow-postgres:
+        condition: service_healthy
+    environment:
+      <<: *airflow-common-env
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes: *airflow-common-volumes
+    command: bash -lc "airflow scheduler"
+
+volumes:
+  airflow_postgres_data:
+  airflow_logs:
+  airflow_plugins:
+  project_node_modules:
+  playwright_cache:
+  pnpm_store:
