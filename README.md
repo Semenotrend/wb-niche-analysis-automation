@@ -230,6 +230,60 @@ HEADLESS=false pnpm run existing-compare-reports
 [existing-compare-reports] saved 1 report rows 5 card rows 6750 chart daily rows opened comparison report run_id=... report_id=...
 ```
 
+## Airflow DAG для 10 пачек сравнений
+
+DAG-и можно открыть в отдельном Airflow UI:
+
+```bash
+docker compose -f airflow/docker-compose.yml up -d --build
+```
+
+После запуска:
+
+```text
+http://localhost:7778
+admin / admin
+```
+
+DAG лежит в:
+
+```text
+airflow/dags/wb_niche_daily_collection.py
+```
+
+Он запускает:
+
+```text
+preflight_doctor
+  -> collect_niche_report
+  -> collect_niche_query_stats
+  -> create_compare_seed
+  -> pause_between_compare_batches_01
+  -> create_compare_next_01
+  -> ...
+  -> create_compare_next_09
+```
+
+`create_compare_seed` создает первую пачку из 5 SKU после сбора пула из 50 карточек.
+Каждый следующий `create_compare_next_*` берет следующие свободные 5 SKU из БД в момент запуска.
+Каждая compare-пачка идет не меньше `WB_NICHE_COMPARE_BATCH_MIN_SECONDS=60` секунд, а между пачками стоит отдельная пауза `WB_NICHE_COMPARE_BATCH_PAUSE_SECONDS=60` секунд.
+
+Для продолжения уже созданного пула без нового `compare-cards` используй:
+
+```text
+airflow/dags/wb_niche_continue_compare_pool.py
+```
+
+Для текущего пула `Блендеры / По выручке` он по умолчанию продолжает source-run:
+
+```text
+37400677-4e90-4668-9a04-6a0c458a6e3a
+```
+
+Перед запуском continuation-пачек DAG проверяет этот source-run в БД через `pnpm run compare-pool-status`.
+
+Подробнее: `docs/airflow_dag.md`.
+
 ## Таблицы
 
 Основные таблицы нового workflow:
