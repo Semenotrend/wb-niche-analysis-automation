@@ -3,6 +3,9 @@ node_modules/
 __pycache__/
 *.pyc
 backups/*.sql
+backups/*.dump
+backups/db_dumps/
+outputs/
 .DS_Store
 .auth/*.json
 logs/*.json

@@ -34,6 +34,8 @@ services:
       DATABASE_URL: postgresql://wb_niche:wb_niche_local@host.docker.internal:7777/wb_niche_analysis
       WB_NICHE_PROJECT_ROOT: /opt/airflow/project
       WB_NICHE_HEADLESS: "true"
+      WB_NICHE_COMPARE_BATCHES_TOTAL: "5"
+      WB_NICHE_CONTINUE_COMPARE_BATCHES_TOTAL: "4"
       WB_NICHE_COMPARE_BATCH_MIN_SECONDS: "60"
       WB_NICHE_COMPARE_BATCH_PAUSE_SECONDS: "60"
       PNPM_HOME: /home/airflow/.local/share/pnpm

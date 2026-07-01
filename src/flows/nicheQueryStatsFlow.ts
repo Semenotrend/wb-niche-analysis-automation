@@ -13,7 +13,7 @@ import {
   saveNicheQueryStatsToDb,
   type SaveNicheQueryStatsResult
 } from "../steps/saveNicheQueryStatsToDb.js";
-import { setNichePeriodMonth } from "../steps/setNichePeriodMonth.js";
+import { setNichePeriod } from "../steps/setNichePeriodMonth.js";
 
 export const NICHE_QUERY_STATS_FLOW_STEPS = 4;
 
@@ -54,8 +54,8 @@ export async function runNicheQueryStatsFlow(options: {
     });
   }
 
-  await stepRunner.runStep("setNichePeriodMonth", () =>
-    setNichePeriodMonth(page)
+  await stepRunner.runStep("setNichePeriod", () =>
+    setNichePeriod(page, scenario.period)
   );
 
   const report = await stepRunner.runStep("parseNicheQueryStats", () =>

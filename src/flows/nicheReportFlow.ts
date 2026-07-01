@@ -13,7 +13,7 @@ import {
   saveNicheReportStepLogs,
   saveNicheReportToDb
 } from "../steps/saveNicheReportToDb.js";
-import { setNichePeriodMonth } from "../steps/setNichePeriodMonth.js";
+import { setNichePeriod } from "../steps/setNichePeriodMonth.js";
 
 export const NICHE_REPORT_FLOW_STEPS = 4;
 
@@ -55,8 +55,8 @@ export async function runNicheReportFlow(options: {
     });
   }
 
-  await stepRunner.runStep("setNichePeriodMonth", () =>
-    setNichePeriodMonth(page)
+  await stepRunner.runStep("setNichePeriod", () =>
+    setNichePeriod(page, scenario.period)
   );
   await stepRunner.runStep("parseNicheReport", async () => {
     parsedReport = await parseNicheReport(page, scenario);

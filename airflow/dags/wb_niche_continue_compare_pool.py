@@ -19,7 +19,7 @@ PROJECT_ROOT = Path(
 
 PROJECT_ROOT_SHELL = shlex.quote(str(PROJECT_ROOT))
 TOTAL_CONTINUE_BATCHES = int(
-    os.environ.get("WB_NICHE_CONTINUE_COMPARE_BATCHES_TOTAL", "8")
+    os.environ.get("WB_NICHE_CONTINUE_COMPARE_BATCHES_TOTAL", "9")
 )
 MIN_COMPARE_BATCH_SECONDS = int(
     os.environ.get("WB_NICHE_COMPARE_BATCH_MIN_SECONDS", "60")
@@ -91,7 +91,7 @@ with DAG(
     max_active_runs=1,
     params={
         "scenario_index": 0,
-        "source_run_id": "37400677-4e90-4668-9a04-6a0c458a6e3a",
+        "source_run_id": "b9437080-bf6a-4068-9461-70d78b722245",
     },
     tags=["wb", "playwright", "niche-analysis", "continue-pool"],
 ) as dag:

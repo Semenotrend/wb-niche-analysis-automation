@@ -4,7 +4,7 @@ import {
 } from "../core/browser.js";
 import {
   loadRuntimeConfig,
-  loadScenarioConfigs
+  loadNichePeriodScenarioConfigs
 } from "../core/config.js";
 import { createPacing } from "../core/pacing.js";
 import { createStepRunner } from "../core/stepRunner.js";
@@ -16,7 +16,7 @@ import { saveNicheQueryStatsStepLogs } from "../steps/saveNicheQueryStatsToDb.js
 
 async function main(): Promise<void> {
   const [scenarios, runtime] = await Promise.all([
-    loadScenarioConfigs(),
+    loadNichePeriodScenarioConfigs(),
     loadRuntimeConfig()
   ]);
 
@@ -29,7 +29,7 @@ async function main(): Promise<void> {
   try {
     for (const [index, scenario] of scenarios.entries()) {
       console.log(
-        `[niche-query-stats] ${index + 1}/${scenarios.length} ${scenario.category} / ${scenario.subject}`
+        `[niche-query-stats] ${index + 1}/${scenarios.length} ${scenario.category} / ${scenario.subject} / ${scenario.period}`
       );
 
       const stepRunner = createStepRunner({

@@ -230,28 +230,38 @@ HEADLESS=false pnpm run existing-compare-reports
 [existing-compare-reports] saved 1 report rows 5 card rows 6750 chart daily rows opened comparison report run_id=... report_id=...
 ```
 
-## Airflow DAG для 10 пачек сравнений
+## Airflow DAG и отдельный локальный Airflow
 
-DAG-и можно открыть в отдельном Airflow UI:
+Для этого проекта добавлен отдельный Airflow stack. Он не использует старый UI на `8082`: у него своя metadata Postgres и mount текущего репозитория.
+
+Запуск из корня проекта:
 
 ```bash
 docker compose -f airflow/docker-compose.yml up -d --build
 ```
 
-После запуска:
+UI:
 
 ```text
 http://localhost:7778
 admin / admin
 ```
 
-DAG лежит в:
+В контейнере Airflow команды проекта запускаются из `/opt/airflow/project`, а к рабочей БД подключаются через:
+
+```text
+postgresql://wb_niche:wb_niche_local@host.docker.internal:7777/wb_niche_analysis
+```
+
+### DAG полного сбора
+
+Файл:
 
 ```text
 airflow/dags/wb_niche_daily_collection.py
 ```
 
-Он запускает:
+Сценарий:
 
 ```text
 preflight_doctor
@@ -264,23 +274,80 @@ preflight_doctor
   -> create_compare_next_09
 ```
 
-`create_compare_seed` создает первую пачку из 5 SKU после сбора пула из 50 карточек.
-Каждый следующий `create_compare_next_*` берет следующие свободные 5 SKU из БД в момент запуска.
-Каждая compare-пачка идет не меньше `WB_NICHE_COMPARE_BATCH_MIN_SECONDS=60` секунд, а между пачками стоит отдельная пауза `WB_NICHE_COMPARE_BATCH_PAUSE_SECONDS=60` секунд.
+`create_compare_seed` собирает новый пул из 50 SKU и сразу создает первую пачку из 5 SKU. Следующие `create_compare_next_*` берут следующие свободные SKU из этого же пула в момент запуска.
 
-Для продолжения уже созданного пула без нового `compare-cards` используй:
+### DAG продолжения существующего пула
+
+Файл:
 
 ```text
 airflow/dags/wb_niche_continue_compare_pool.py
 ```
 
-Для текущего пула `Блендеры / По выручке` он по умолчанию продолжает source-run:
+Сценарий:
 
 ```text
+validate_source_run_id
+  -> validate_source_pool
+  -> continue_compare_next_01
+  -> pause_between_compare_batches_01
+  -> continue_compare_next_02
+  -> ...
+  -> continue_compare_next_08
+```
+
+Этот DAG не запускает `compare-cards` и не создает новый пул. Он продолжает уже существующий `source_run_id`, проверяет его через `pnpm run compare-pool-status`, а затем запускает только `compare-cards-next`.
+
+Параметры по умолчанию в DAG оставлены для пула `Блендеры / По выручке`:
+
+```text
+scenario_index = 0
+source_run_id =
 37400677-4e90-4668-9a04-6a0c458a6e3a
 ```
 
-Перед запуском continuation-пачек DAG проверяет этот source-run в БД через `pnpm run compare-pool-status`.
+Важно: этот конкретный pool уже полностью обработан. Сейчас в локальной БД по нему `50 used / 0 available`, поэтому повторный запуск continuation-DAG с дефолтными параметрами должен упасть на `validate_source_pool`. Для нового незавершенного пула нужно передать новый `source_run_id` и нужное число continuation-пачек.
+
+### Паузы и защита от слишком быстрого сбора
+
+В DAG включены две задержки:
+
+```text
+WB_NICHE_COMPARE_BATCH_MIN_SECONDS=60
+WB_NICHE_COMPARE_BATCH_PAUSE_SECONDS=60
+```
+
+Каждая compare-пачка длится не меньше 60 секунд. Если браузерный сбор завершился быстрее, task досыпает до минуты. Между пачками есть отдельные task-и `pause_between_compare_batches_*` тоже на 60 секунд. После последней пачки паузы нет.
+
+### Выбор ниши
+
+Все CLI-команды теперь поддерживают фильтр:
+
+```bash
+SCENARIO_INDEX=0 pnpm run compare-cards
+SCENARIO_INDEX=0 SOURCE_RUN_ID=<run_id> pnpm run compare-cards-next
+SCENARIO_INDEX=0 SOURCE_RUN_ID=<run_id> EXPECTED_COMPARE_BATCHES=8 pnpm run compare-pool-status
+```
+
+`SCENARIO_INDEX=0` означает первую нишу из `config/scenario.json`; конкретный предмет и `topBy` берутся из текущего файла конфигурации.
+
+Для `niche-report` и `niche-query-stats` выбранная ниша дополнительно разворачивается по массиву `periods`, если он задан в `config/scenario.json`. Так один запуск может последовательно собрать, например, `Месяц` и `Квартал` для одной ниши. Compare-flow (`compare-cards`, `compare-cards-next`, `compare-pool-status`) использует одну выбранную нишу и основной `period`, не создавая отдельные пулы по каждому периоду.
+
+### Текущее состояние локальной БД
+
+После контрольного запуска и чистки в локальной БД оставлены только данные по `Блендеры / По выручке`:
+
+```text
+compare_card_recommendations:      50
+compare_card_comparison_requests:  10
+compare_card_reports:              10
+compare_card_report_items:         50
+compare_card_report_chart_daily:   67 500
+```
+
+Данные покрывают 50 уникальных SKU, 10 отчетов по 5 SKU, без дублей SKU и без дублей `report_fingerprint`. Диапазон дат графиков: `2026-03-28` ... `2026-06-26`.
+
+Таблицы `niche_*` сейчас пустые, потому что перед чисткой в них были только данные по `Фены`.
 
 Подробнее: `docs/airflow_dag.md`.
 

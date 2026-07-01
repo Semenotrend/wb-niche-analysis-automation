@@ -8,6 +8,7 @@ export type ScenarioConfig = {
   category: string;
   subject: string;
   period: string;
+  periods: string[];
   topBy: string;
   nicheReportUrl: string;
   fallbackEnabled: boolean;
@@ -17,6 +18,7 @@ type RawScenarioNicheConfig = {
   category?: unknown;
   subject?: unknown;
   period?: unknown;
+  periods?: unknown;
   topBy?: unknown;
   nicheReportUrl?: unknown;
   fallbackEnabled?: unknown;
@@ -77,18 +79,71 @@ function readBoolean(value: unknown, fieldName: string): boolean {
   return value;
 }
 
+function readStringList(value: unknown, fieldName: string): string[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`config: scenario.${fieldName} must be an array`);
+  }
+
+  if (value.length === 0) {
+    throw new Error(`config: scenario.${fieldName} must contain at least one item`);
+  }
+
+  return value.map((item, index) =>
+    readString(item, `${fieldName}[${index}]`)
+  );
+}
+
+function readPeriods(
+  rawNiche: RawScenarioNicheConfig,
+  defaults: RawScenarioNicheConfig,
+  fieldPrefix: string
+): string[] {
+  const rawPeriods = rawNiche.periods ?? defaults.periods;
+
+  if (rawPeriods !== undefined) {
+    return readStringList(rawPeriods, `${fieldPrefix}periods`);
+  }
+
+  return [readString(rawNiche.period ?? defaults.period, `${fieldPrefix}period`)];
+}
+
+function readPrimaryPeriod(
+  rawNiche: RawScenarioNicheConfig,
+  defaults: RawScenarioNicheConfig,
+  fieldPrefix: string,
+  periods: string[]
+): string {
+  const rawPeriod =
+    rawNiche.period ?? (rawNiche.periods === undefined ? defaults.period : undefined);
+  const period =
+    rawPeriod === undefined
+      ? periods[0]
+      : readString(rawPeriod, `${fieldPrefix}period`);
+
+  if (!periods.includes(period)) {
+    throw new Error(
+      `config: scenario.${fieldPrefix}period must be included in scenario.${fieldPrefix}periods`
+    );
+  }
+
+  return period;
+}
+
 function normalizeScenario(
   rawNiche: RawScenarioNicheConfig,
   defaults: RawScenarioNicheConfig,
   fieldPrefix: string
 ): ScenarioConfig {
+  const periods = readPeriods(rawNiche, defaults, fieldPrefix);
+
   return {
     category: readString(
       rawNiche.category ?? defaults.category,
       `${fieldPrefix}category`
     ),
     subject: readString(rawNiche.subject ?? defaults.subject, `${fieldPrefix}subject`),
-    period: readString(rawNiche.period ?? defaults.period, `${fieldPrefix}period`),
+    period: readPrimaryPeriod(rawNiche, defaults, fieldPrefix, periods),
+    periods,
     topBy: readString(rawNiche.topBy ?? defaults.topBy, `${fieldPrefix}topBy`),
     nicheReportUrl: readString(
       rawNiche.nicheReportUrl ?? defaults.nicheReportUrl ?? "",
@@ -142,6 +197,15 @@ function selectScenarioByEnv(scenarios: ScenarioConfig[]): ScenarioConfig[] {
   return [scenarios[index]];
 }
 
+function expandScenarioPeriods(scenarios: ScenarioConfig[]): ScenarioConfig[] {
+  return scenarios.flatMap((scenario) =>
+    scenario.periods.map((period) => ({
+      ...scenario,
+      period
+    }))
+  );
+}
+
 export async function loadScenarioConfig(): Promise<ScenarioConfig> {
   const scenarios = await loadScenarioConfigs();
   return scenarios[0];
@@ -153,6 +217,15 @@ export async function loadScenarioConfigs(): Promise<ScenarioConfig[]> {
   );
 
   return selectScenarioByEnv(normalizeScenarioConfigs(rawScenario));
+}
+
+export async function loadNichePeriodScenarioConfigs(): Promise<ScenarioConfig[]> {
+  const rawScenario = await readJson<RawScenarioConfig>(
+    join(PROJECT_ROOT, "config", "scenario.json")
+  );
+  const selectedScenarios = selectScenarioByEnv(normalizeScenarioConfigs(rawScenario));
+
+  return expandScenarioPeriods(selectedScenarios);
 }
 
 export async function loadRuntimeConfig(): Promise<RuntimeConfig> {

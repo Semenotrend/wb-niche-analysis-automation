@@ -8,7 +8,7 @@ import { openNicheCard } from "../steps/openNicheCard.js";
 import { selectCategory } from "../steps/selectCategory.js";
 import { selectSubject } from "../steps/selectSubject.js";
 import { resetFiltersIfActive } from "../steps/resetFiltersIfActive.js";
-import { setNichePeriodMonth } from "../steps/setNichePeriodMonth.js";
+import { setNichePeriod } from "../steps/setNichePeriodMonth.js";
 import { setPeriodMonth } from "../steps/setPeriodMonth.js";
 
 export const IMPLEMENTED_NICHE_UI_FALLBACK_STEPS = 9;
@@ -40,7 +40,7 @@ export async function runNicheUiFallbackFlow(options: {
   await stepRunner.runStep("openNicheCard", () =>
     openNicheCard(page, scenario.category, scenario.subject)
   );
-  await stepRunner.runStep("setNichePeriodMonth", () =>
-    setNichePeriodMonth(page)
+  await stepRunner.runStep("setNichePeriod", () =>
+    setNichePeriod(page, scenario.period)
   );
 }

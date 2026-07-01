@@ -42,11 +42,6 @@ export async function openNicheReportByUrl(
       );
     }
 
-    await page.getByText("К Аналитике площадки", { exact: true }).waitFor({
-      state: "visible",
-      timeout: 30_000
-    });
-
     await page.waitForFunction(
       `subject => {
         const bodyText = (document.body.textContent || "").replace(/\\s+/g, " ").trim();

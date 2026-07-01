@@ -6,6 +6,7 @@ type RawScenarioNicheConfig = {
   category?: unknown;
   subject?: unknown;
   period?: unknown;
+  periods?: unknown;
   topBy?: unknown;
   nicheReportUrl?: unknown;
   fallbackEnabled?: unknown;
@@ -35,6 +36,38 @@ function assertBoolean(value: unknown, fieldName: string): void {
   }
 }
 
+function assertStringList(value: unknown, fieldName: string): string[] {
+  if (!Array.isArray(value)) {
+    throw new Error(`${fieldName} must be an array`);
+  }
+
+  if (value.length === 0) {
+    throw new Error(`${fieldName} must contain at least one item`);
+  }
+
+  for (const [index, item] of value.entries()) {
+    assertString(item, `${fieldName}[${index}]`);
+  }
+
+  return value as string[];
+}
+
+function readPeriods(
+  rawNiche: RawScenarioNicheConfig,
+  defaults: RawScenarioNicheConfig,
+  fieldPrefix: string
+): string[] {
+  const rawPeriods = rawNiche.periods ?? defaults.periods;
+
+  if (rawPeriods !== undefined) {
+    return assertStringList(rawPeriods, `${fieldPrefix}periods`);
+  }
+
+  const period = rawNiche.period ?? defaults.period;
+  assertString(period, `${fieldPrefix}period`);
+  return [period as string];
+}
+
 function normalizeScenario(
   rawNiche: RawScenarioNicheConfig,
   defaults: RawScenarioNicheConfig,
@@ -42,14 +75,22 @@ function normalizeScenario(
 ): { nicheReportUrl: string; fallbackEnabled: boolean } {
   const category = rawNiche.category ?? defaults.category;
   const subject = rawNiche.subject ?? defaults.subject;
-  const period = rawNiche.period ?? defaults.period;
+  const periods = readPeriods(rawNiche, defaults, fieldPrefix);
+  const period =
+    rawNiche.period ?? (rawNiche.periods === undefined ? defaults.period : undefined);
   const topBy = rawNiche.topBy ?? defaults.topBy;
   const nicheReportUrl = rawNiche.nicheReportUrl ?? defaults.nicheReportUrl ?? "";
   const fallbackEnabled = rawNiche.fallbackEnabled ?? defaults.fallbackEnabled;
 
   assertString(category, `${fieldPrefix}category`);
   assertString(subject, `${fieldPrefix}subject`);
-  assertString(period, `${fieldPrefix}period`);
+  if (period !== undefined) {
+    assertString(period, `${fieldPrefix}period`);
+
+    if (!periods.includes(period as string)) {
+      throw new Error(`${fieldPrefix}period must be included in ${fieldPrefix}periods`);
+    }
+  }
   assertString(topBy, `${fieldPrefix}topBy`);
   assertString(nicheReportUrl, `${fieldPrefix}nicheReportUrl`, true);
   assertBoolean(fallbackEnabled, `${fieldPrefix}fallbackEnabled`);

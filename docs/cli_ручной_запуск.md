@@ -15,6 +15,7 @@
 ```json
 {
   "period": "Месяц",
+  "periods": ["Месяц", "Квартал"],
   "topBy": "По выручке",
   "fallbackEnabled": true,
   "niches": [
@@ -28,6 +29,7 @@
 ```
 
 Каждый элемент `niches` - отдельная ниша, которую команды обходят по очереди.
+`periods` задает периоды для нишевых команд `niche-report` и `niche-query-stats`; `period` остается основным периодом для старого одно-периодного режима и служебной записи сценария.
 
 ## Авторизация
 
@@ -51,27 +53,29 @@ HEADLESS=false
 
 ## 1. Сбор статистики ниши
 
-Команда:
+Команды:
 
 ```bash
 HEADLESS=false pnpm run niche-report
+HEADLESS=false pnpm run niche-query-stats
 ```
 
 Что делает:
 
-1. для каждой ниши из `config/scenario.json` открывает ее `nicheReportUrl`;
-2. выбирает период `Месяц`;
-3. парсит метрики и поисковые запросы;
-4. сохраняет результат в PostgreSQL.
+1. для каждой ниши из `config/scenario.json` и каждого периода из `periods` открывает ее `nicheReportUrl`;
+2. выбирает текущий период, например `Месяц` или `Квартал`;
+3. `niche-report` парсит метрики ниши;
+4. `niche-query-stats` парсит поисковые запросы;
+5. сохраняет результат в PostgreSQL.
 
 Успешный лог выглядит так:
 
 ```text
 [1/4] openNicheReportByUrl success
-[2/4] setNichePeriodMonth success
+[2/4] setNichePeriod success
 [3/4] parseNicheReport success
 [4/4] saveNicheReportToDb success
-[niche-report] saved 18 metrics and 50 search queries
+[niche-report] saved 18 metrics
 ```
 
 ## 2. Сравнение карточек

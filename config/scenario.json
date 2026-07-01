@@ -1,12 +1,13 @@
 {
   "period": "Месяц",
+  "periods": ["Месяц", "Квартал"],
   "topBy": "По выручке",
   "fallbackEnabled": true,
   "niches": [
     {
       "category": "Техника для кухни",
-      "subject": "Блендеры",
-      "nicheReportUrl": "https://seller.wildberries.ru/platform-analytics/niche-analysis/item?id=614"
+      "subject": "Упаковщики вакуумные",
+      "nicheReportUrl": "https://seller.wildberries.ru/platform-analytics/niche-analysis/item?id=722"
     }
   ]
 }
